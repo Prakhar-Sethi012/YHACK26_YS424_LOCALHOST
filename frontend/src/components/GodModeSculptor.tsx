@@ -10,14 +10,16 @@ const TOOLS: { id: GodModeTool; label: string; icon: string; desc: string; color
 ];
 
 const SCENARIOS = [
-  { label: 'Sudden Wall Collapse', payload: { type: 'mutate', action: 'drop_obstacle', x: 50, y: 50, radius: 4 } },
-  { label: 'Thermal Pipeline Rupture', payload: { type: 'mutate', action: 'add_heat_zone', x: 55, y: 55, peak_temp: 95, sigma: 6 } },
+  { label: 'Sudden Wall Collapse', payload: { type: 'drop_obstacle', x: 50, y: 50, radius: 4 } },
+  { label: 'Thermal Pipeline Rupture', payload: { type: 'add_heat_zone', x: 55, y: 55, temp: 95, sigma: 6 } },
 ];
 
 export default function GodModeSculptor() {
   const godModeTool = useSimulationStore(s => s.godModeTool);
   const setGodModeTool = useSimulationStore(s => s.setGodModeTool);
   const lastMutationAck = useSimulationStore(s => s.lastMutationAck);
+
+  const sendGodModeCommand = useSimulationStore(s => s.sendGodModeCommand);
 
   const toggle = (tool: GodModeTool) => {
     setGodModeTool(godModeTool === tool ? null : tool);
@@ -62,6 +64,7 @@ export default function GodModeSculptor() {
         {SCENARIOS.map((s, i) => (
           <button
             key={i}
+            onClick={() => sendGodModeCommand(s.payload)}
             className="w-full text-left px-2 py-1.5 rounded border border-neutral-700 bg-neutral-900/50 text-[10px] text-neutral-400 hover:border-orange-600 hover:text-orange-300 transition-all"
           >
             {s.label}

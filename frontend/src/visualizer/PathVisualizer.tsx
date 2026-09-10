@@ -16,14 +16,12 @@ export default function PathVisualizer({ path3d, heightScale = 0.35 }: Props) {
       ([bx, by, bz]) => new THREE.Vector3(bx - 50, bz * heightScale + 0.15, by - 50)
     );
 
-    // Catmull-Rom smoothing
-    const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.3);
-    const smoothPts = curve.getPoints(Math.max(60, pts.length * 4));
-
+    // The backend already smooths the path with Catmull-Rom.
+    // Use the points directly.
     // Every Nth waypoint as a marker
     const waypoints = pts.filter((_, i) => i % 8 === 0 || i === pts.length - 1);
 
-    return { linePoints: smoothPts, waypointPositions: waypoints };
+    return { linePoints: pts, waypointPositions: waypoints };
   }, [path3d, heightScale]);
 
   if (linePoints.length < 2) return null;

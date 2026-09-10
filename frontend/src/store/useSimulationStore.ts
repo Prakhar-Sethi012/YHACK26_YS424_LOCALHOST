@@ -65,6 +65,7 @@ interface SimulationState {
   disconnect: () => void;
   setGodModeTool: (tool: GodModeTool) => void;
   applyGodModeAt: (gridX: number, gridY: number) => void;
+  sendGodModeCommand: (payload: any) => void;
 }
 
 let _ws: WebSocket | null = null;
@@ -204,13 +205,19 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
     if (!godModeTool) return;
 
     if (godModeTool === 'wall') {
-      _ws.send(JSON.stringify({ type: 'mutate', action: 'drop_obstacle', x: gridX, y: gridY, radius: 2 }));
+      _ws.send(JSON.stringify({ type: 'drop_obstacle', x: gridX, y: gridY, radius: 2 }));
     } else if (godModeTool === 'fire') {
-      _ws.send(JSON.stringify({ type: 'mutate', action: 'add_heat_zone', x: gridX, y: gridY, peak_temp: 90.0, sigma: 5.0 }));
+      _ws.send(JSON.stringify({ type: 'add_heat_zone', x: gridX, y: gridY, temp: 90.0, sigma: 5.0 }));
     } else if (godModeTool === 'landslide') {
-      _ws.send(JSON.stringify({ type: 'mutate', action: 'drop_obstacle', x: gridX, y: gridY, radius: 5 }));
+      _ws.send(JSON.stringify({ type: 'drop_obstacle', x: gridX, y: gridY, radius: 5 }));
     } else if (godModeTool === 'clear') {
-      _ws.send(JSON.stringify({ type: 'mutate', action: 'clear_obstacle', x: gridX, y: gridY, radius: 3 }));
+      _ws.send(JSON.stringify({ type: 'clear_obstacle', x: gridX, y: gridY, radius: 3 }));
+    }
+  },
+
+  sendGodModeCommand: (payload: any) => {
+    if (_ws && _ws.readyState === WebSocket.OPEN) {
+      _ws.send(JSON.stringify(payload));
     }
   },
 }));
