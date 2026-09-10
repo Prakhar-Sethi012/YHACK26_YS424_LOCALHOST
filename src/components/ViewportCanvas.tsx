@@ -18,6 +18,7 @@ export const ViewportCanvas: React.FC = () => {
   const terrainMeshRef = useRef<THREE.Mesh | null>(null);
   const dynamicObstacleMeshesRef = useRef<Map<number, THREE.Mesh>>(new Map());
   const victimMarkersRef = useRef<Map<string, THREE.Group>>(new Map());
+  const godModeMarkersRef = useRef<THREE.Object3D[]>([]);
 
   // Initialization: Scene, Cameras, Renderer
   useEffect(() => {
@@ -144,6 +145,20 @@ export const ViewportCanvas: React.FC = () => {
     if (terrainMeshRef.current) {
       scene.remove(terrainMeshRef.current);
     }
+
+    // A fresh initial_state means a brand-new mission (new WS session) --
+    // sculpted markers from the previous mission's God-Mode session no
+    // longer correspond to anything on the new grid, so clear them out.
+    godModeMarkersRef.current.forEach((marker) => {
+      scene.remove(marker);
+      marker.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          (child.material as THREE.Material).dispose();
+        }
+      });
+    });
+    godModeMarkersRef.current = [];
 
     const { width, height, elevation, temperature, obstacles } = initialState;
     const geometry = new THREE.PlaneGeometry(width, height, width - 1, height - 1);
@@ -311,10 +326,33 @@ export const ViewportCanvas: React.FC = () => {
 
       if (activeTool === 'drop_obstacle') {
         sendDropObstacle(gridX, gridY, 3);
+        addGodModeMarker(
+          new THREE.Mesh(
+            new THREE.CylinderGeometry(3, 3.4, 1.4, 20),
+            new THREE.MeshStandardMaterial({ color: 0x2a2f38, roughness: 0.95 })
+          ),
+          pt,
+          0.7
+        );
       } else if (activeTool === 'add_heat_zone') {
         sendAddHeatZone(gridX, gridY, 85, 6.0);
+        const disc = new THREE.Mesh(
+          new THREE.CircleGeometry(6.0, 32),
+          new THREE.MeshBasicMaterial({ color: 0xff5500, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+        );
+        disc.rotation.x = -Math.PI / 2;
+        addGodModeMarker(disc, pt, 0.08);
       }
     }
+  };
+
+  // Places a persistent God-Mode marker at the clicked terrain point, tracked
+  // for cleanup on the next mission (see the initialState effect above).
+  const addGodModeMarker = (mesh: THREE.Mesh, point: THREE.Vector3, yOffset: number) => {
+    if (!sceneRef.current) return;
+    mesh.position.set(point.x, point.y + yOffset, point.z);
+    sceneRef.current.add(mesh);
+    godModeMarkersRef.current.push(mesh);
   };
 
   return (
