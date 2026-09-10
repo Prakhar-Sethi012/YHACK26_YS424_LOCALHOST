@@ -9,6 +9,16 @@ services:
       db:
         condition: service_healthy
 
+  # Backend 1: the stateless, per-connection 20Hz WebSocket simulation engine
+  # (backend/server.py + backend/simulation/*). Independent of `api` -- no
+  # shared state, no DB -- so it gets its own port rather than trying to run
+  # both uvicorn processes from one Dockerfile CMD.
+  sim:
+    build: .
+    command: ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8002:8000"
+
   db:
     image: postgres:16-alpine
     environment:

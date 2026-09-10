@@ -10,15 +10,21 @@ Where:
         c(u, v) = 0.5 * (C(u) + C(v)) * ||u - v||_2
 - h(n): Admissible & consistent Euclidean heuristic to goal:
         h(n) = w_min * ||n - goal||_2
-- 8-connected grid transitions: Cardinal cost = 1.0, Diagonal cost = sqrt(2) ≈ 1.414.
+- 8-connected grid transitions: Cardinal cost = 1.0, Diagonal cost = sqrt(2) ~= 1.414.
+
+Performance note: reads a cached nested-list snapshot of cost_field.cost_tensor
+rather than indexing the NumPy array per neighbor -- see dstar_lite.py's
+module docstring for why (point-access-heavy loops are where NumPy is slow,
+not where it helps).
 """
 
 import heapq
 import time
 import math
-import numpy as np
 from typing import List, Tuple, Dict, Optional, Any
 from ..cost_field import MultiObjectiveCostField
+
+INF = float("inf")
 
 
 class AStarPlanner:
@@ -55,10 +61,15 @@ class AStarPlanner:
         """
         t0 = time.perf_counter()
 
+        # One-time snapshot into plain Python lists for this run.
+        cost = self.cost_field.cost_tensor.tolist()
+        width = self.cost_field.width
+        height = self.cost_field.height
+
         # Sanity check: start or goal inside impassable obstacle
-        if not np.isfinite(self.cost_field.get_traversability_cost(*start)):
+        if not math.isfinite(cost[start[1]][start[0]]):
             return self._empty_result(time.perf_counter() - t0, "Start inside obstacle")
-        if not np.isfinite(self.cost_field.get_traversability_cost(*goal)):
+        if not math.isfinite(cost[goal[1]][goal[0]]):
             return self._empty_result(time.perf_counter() - t0, "Goal inside obstacle")
 
         # Priority queue stores tuples: (f_score, g_score, (x, y))
@@ -87,30 +98,30 @@ class AStarPlanner:
                 }
 
             # Skip suboptimal entries if we already found a cheaper route to `current`
-            if current_g > g_scores.get(current, float('inf')):
+            if current_g > g_scores.get(current, INF):
                 continue
 
             nodes_expanded += 1
             cx, cy = current
-            c_curr = self.cost_field.get_traversability_cost(cx, cy)
+            c_curr = cost[cy][cx]
 
             for dx, dy, step_dist in self.NEIGHBORS:
                 nx, ny = cx + dx, cy + dy
                 neighbor = (nx, ny)
 
                 # Boundary check
-                if not (0 <= nx < self.cost_field.width and 0 <= ny < self.cost_field.height):
+                if not (0 <= nx < width and 0 <= ny < height):
                     continue
 
-                c_next = self.cost_field.get_traversability_cost(nx, ny)
-                if not np.isfinite(c_next):
+                c_next = cost[ny][nx]
+                if not math.isfinite(c_next):
                     continue  # Impassable obstacle or rollover slope
 
                 # Edge cost: c(u, v) = 0.5 * (C(u) + C(v)) * ||u - v||
                 edge_cost = 0.5 * (c_curr + c_next) * step_dist
                 tentative_g = current_g + edge_cost
 
-                if tentative_g < g_scores.get(neighbor, float('inf')):
+                if tentative_g < g_scores.get(neighbor, INF):
                     g_scores[neighbor] = tentative_g
                     came_from[neighbor] = current
                     f_score = tentative_g + self.heuristic(neighbor, goal)
@@ -140,7 +151,7 @@ class AStarPlanner:
             "success": False,
             "path": [],
             "path_length": 0.0,
-            "total_cost": float('inf'),
+            "total_cost": INF,
             "latency_ms": latency_ms,
             "nodes_expanded": 0,
             "error": error_msg,

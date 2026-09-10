@@ -1,24 +1,44 @@
 """
-AEGIS-NAV Production Global Path Planner: D* Lite (Optimized NumPy Array Implementation)
+AEGIS-NAV Production Global Path Planner: D* Lite
 Based on Sven Koenig & Maxim Likhachev (2002) "D* Lite".
 
-Optimizations:
-- 2D float32 NumPy arrays for g(s) and rhs(s) instead of Python dict hashing.
-- Direct memory-mapped cost tensor lookups.
-- Fast lazy priority queue deletion for sub-millisecond incremental replanning.
+Performance note:
+------------------
+g(s) and rhs(s) are plain Python dicts (missing key == infinity), and the
+cost tensor is cached as a nested plain-Python list rather than read from the
+NumPy array directly. D* Lite's hot loop is point-access-heavy (one or two
+scalar reads per neighbor, thousands of times per repair) -- exactly the
+pattern NumPy is *slow* at, since every `arr[y, x]` access pays dtype
+conversion and object-wrapping overhead. On a 100x100 grid, a mutation
+touching ~2300 nodes went from ~330ms (NumPy arrays) to ~90-100ms (this
+version) -- a ~3.5x win. (A further attempt at flat-integer dict keys instead
+of (x, y) tuples measured the same ~90-100ms, i.e. no real gain for the
+added complexity, so it was reverted -- tuple hashing wasn't actually the
+bottleneck here.)
+
+That ~90-100ms is still ~4x over the spec's <25ms/100x100 target for this
+specific worst-case (an obstacle dropped near the center of a fairly busy
+disaster map, forcing ~2300 node re-expansions). The algorithm's localization
+was correct throughout, independent of this fix: an unrelated tiny mutation
+expands 0-2 nodes and returns in ~1-2ms, comfortably under target. Closing
+the remaining gap on the worst case would need either a native
+implementation (the repo's C++ aegis_core engine already does this in
+<1ms) or a genuinely different Python approach (Cython/Numba), not more
+micro-optimization of this loop.
 """
 
 import time
 import math
 import heapq
-import numpy as np
 from typing import List, Tuple, Dict, Optional, Any, Set
 from ..cost_field import MultiObjectiveCostField
+
+INF = float("inf")
 
 
 class DStarLitePlanner:
     """
-    High-performance NumPy-backed D* Lite incremental planner.
+    D* Lite incremental planner over a plain-Python-cached cost tensor.
     """
 
     # 8-connected grid offsets: (dx, dy, step_distance)
@@ -43,16 +63,27 @@ class DStarLitePlanner:
         self.last_start: Tuple[int, int] = (0, 0)
         self.k_m: float = 0.0
 
-        # High performance 2D NumPy arrays for g and rhs
-        self.g = np.full((self.h, self.w), np.inf, dtype=np.float32)
-        self.rhs = np.full((self.h, self.w), np.inf, dtype=np.float32)
+        # g(s) and rhs(s): sparse dicts, missing key means infinity. Cheaper
+        # than dense NumPy arrays for a search that only ever touches a
+        # fraction of the grid's nodes.
+        self.g: Dict[Tuple[int, int], float] = {}
+        self.rhs: Dict[Tuple[int, int], float] = {}
 
         # Min-heap priority queue: entries are ((k1, k2), (x, y))
         self.heap: List[Tuple[Tuple[float, float], Tuple[int, int]]] = []
         # Fast membership and current priority tracking
         self.open_dict: Dict[Tuple[int, int], Tuple[float, float]] = {}
 
+        # Plain nested-list snapshot of cost_field.cost_tensor, refreshed
+        # whenever the cost field may have changed (initialize / before a
+        # repair). One conversion per call is ~10k floats, negligible next
+        # to the thousands of per-node accesses it replaces.
+        self._cost: List[List[float]] = []
+
         self.initialized = False
+
+    def _refresh_cost_cache(self):
+        self._cost = self.cost_field.cost_tensor.tolist()
 
     def heuristic(self, a: Tuple[int, int], b: Tuple[int, int]) -> float:
         """Euclidean distance lower bound scaled by base unit cost."""
@@ -60,20 +91,19 @@ class DStarLitePlanner:
 
     def calculate_key(self, s: Tuple[int, int]) -> Tuple[float, float]:
         """Calculates D* Lite priority key [k1, k2]."""
-        x, y = s
-        g_val = float(self.g[y, x])
-        rhs_val = float(self.rhs[y, x])
-        min_cost = min(g_val, rhs_val)
+        g_val = self.g.get(s, INF)
+        rhs_val = self.rhs.get(s, INF)
+        min_cost = g_val if g_val < rhs_val else rhs_val
         k1 = min_cost + self.heuristic(self.start, s) + self.k_m
         k2 = min_cost
         return (k1, k2)
 
     def edge_cost(self, x1: int, y1: int, x2: int, y2: int, step_dist: float) -> float:
-        """Direct memory-mapped edge cost between adjacent grid cells."""
-        c1 = float(self.cost_field.cost_tensor[y1, x1])
-        c2 = float(self.cost_field.cost_tensor[y2, x2])
-        if not (np.isfinite(c1) and np.isfinite(c2)):
-            return float('inf')
+        """Cached-list edge cost lookup between adjacent grid cells."""
+        c1 = self._cost[y1][x1]
+        c2 = self._cost[y2][x2]
+        if not (math.isfinite(c1) and math.isfinite(c2)):
+            return INF
         return 0.5 * (c1 + c2) * step_dist
 
     def initialize(self, start: Tuple[int, int], goal: Tuple[int, int]):
@@ -83,13 +113,13 @@ class DStarLitePlanner:
         self.last_start = start
         self.k_m = 0.0
 
-        self.g.fill(np.inf)
-        self.rhs.fill(np.inf)
+        self._refresh_cost_cache()
+        self.g.clear()
+        self.rhs.clear()
         self.heap.clear()
         self.open_dict.clear()
 
-        gx, gy = goal
-        self.rhs[gy, gx] = 0.0
+        self.rhs[goal] = 0.0
         init_key = self.calculate_key(goal)
         self.open_dict[goal] = init_key
         heapq.heappush(self.heap, (init_key, goal))
@@ -99,25 +129,25 @@ class DStarLitePlanner:
         """Updates rhs(u) and maintains open list priority."""
         ux, uy = u
         if u != self.goal:
-            min_rhs = float('inf')
-            c_u = float(self.cost_field.cost_tensor[uy, ux])
+            min_rhs = INF
+            c_u = self._cost[uy][ux]
 
-            if np.isfinite(c_u):
+            if math.isfinite(c_u):
                 for dx, dy, step_dist in self.NEIGHBORS:
                     nx, ny = ux + dx, uy + dy
                     if 0 <= nx < self.w and 0 <= ny < self.h:
-                        c_n = float(self.cost_field.cost_tensor[ny, nx])
-                        if np.isfinite(c_n):
+                        c_n = self._cost[ny][nx]
+                        if math.isfinite(c_n):
                             edge = 0.5 * (c_u + c_n) * step_dist
-                            cost = edge + float(self.g[ny, nx])
+                            cost = edge + self.g.get((nx, ny), INF)
                             if cost < min_rhs:
                                 min_rhs = cost
 
-            self.rhs[uy, ux] = min_rhs
+            self.rhs[u] = min_rhs
 
         # Update in open list
-        g_val = float(self.g[uy, ux])
-        rhs_val = float(self.rhs[uy, ux])
+        g_val = self.g.get(u, INF)
+        rhs_val = self.rhs.get(u, INF)
 
         if g_val != rhs_val:
             key = self.calculate_key(u)
@@ -132,19 +162,18 @@ class DStarLitePlanner:
             if item in self.open_dict and self.open_dict[item] == key:
                 return key
             heapq.heappop(self.heap)
-        return (float('inf'), float('inf'))
+        return (INF, INF)
 
     def compute_shortest_path(self) -> int:
         """Expands inconsistent vertices until start is consistent."""
         expansions = 0
-        sx, sy = self.start
 
         while True:
             top_k = self._top_key()
             start_k = self.calculate_key(self.start)
 
-            g_start = float(self.g[sy, sx])
-            rhs_start = float(self.rhs[sy, sx])
+            g_start = self.g.get(self.start, INF)
+            rhs_start = self.rhs.get(self.start, INF)
 
             if not (top_k < start_k or g_start != rhs_start):
                 break
@@ -166,19 +195,19 @@ class DStarLitePlanner:
                 expansions += 1
                 del self.open_dict[u]
 
-                g_u = float(self.g[uy, ux])
-                rhs_u = float(self.rhs[uy, ux])
+                g_u = self.g.get(u, INF)
+                rhs_u = self.rhs.get(u, INF)
 
                 if g_u > rhs_u:
                     # Overconsistent: propagate decrease
-                    self.g[uy, ux] = rhs_u
+                    self.g[u] = rhs_u
                     for dx, dy, _ in self.NEIGHBORS:
                         nx, ny = ux + dx, uy + dy
                         if 0 <= nx < self.w and 0 <= ny < self.h:
                             self.update_vertex((nx, ny))
                 else:
                     # Underconsistent: cost increased or blocked
-                    self.g[uy, ux] = float('inf')
+                    self.g[u] = INF
                     self.update_vertex(u)
                     for dx, dy, _ in self.NEIGHBORS:
                         nx, ny = ux + dx, uy + dy
@@ -189,8 +218,7 @@ class DStarLitePlanner:
 
     def extract_path(self) -> List[Tuple[int, int]]:
         """Extracts optimal path from start to goal following minimum (c(u, v) + g(v))."""
-        sx, sy = self.start
-        if not np.isfinite(self.rhs[sy, sx]):
+        if not math.isfinite(self.rhs.get(self.start, INF)):
             return []
 
         path = [self.start]
@@ -199,22 +227,22 @@ class DStarLitePlanner:
 
         while curr != self.goal:
             cx, cy = curr
-            c_curr = float(self.cost_field.cost_tensor[cy, cx])
+            c_curr = self._cost[cy][cx]
             best_next = None
-            min_val = float('inf')
+            min_val = INF
 
             for dx, dy, step_dist in self.NEIGHBORS:
                 nx, ny = cx + dx, cy + dy
                 if 0 <= nx < self.w and 0 <= ny < self.h:
-                    c_next = float(self.cost_field.cost_tensor[ny, nx])
-                    if np.isfinite(c_next):
+                    c_next = self._cost[ny][nx]
+                    if math.isfinite(c_next):
                         edge = 0.5 * (c_curr + c_next) * step_dist
-                        val = edge + float(self.g[ny, nx])
+                        val = edge + self.g.get((nx, ny), INF)
                         if val < min_val:
                             min_val = val
                             best_next = (nx, ny)
 
-            if best_next is None or not np.isfinite(min_val) or best_next in visited:
+            if best_next is None or not math.isfinite(min_val) or best_next in visited:
                 break
 
             curr = best_next
@@ -252,6 +280,7 @@ class DStarLitePlanner:
         """
         t0 = time.perf_counter()
 
+        self._refresh_cost_cache()  # cost_field.recompute_all() ran just before this
         self.start = current_rover_pos
         self.k_m += self.heuristic(self.last_start, self.start)
         self.last_start = self.start
