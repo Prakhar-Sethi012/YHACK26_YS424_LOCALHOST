@@ -47,6 +47,15 @@ export const HUD: React.FC = () => {
         </div>
       </div>
 
+      {/* Viewport split divider + labels (matches ViewportCanvas's 65/35 scissor split) */}
+      <div className="absolute left-[65%] top-0 bottom-0 w-px bg-cyan-500/25" />
+      <div className="absolute left-3 top-12 text-[9px] text-cyan-500/50 tracking-widest">
+        VIEWPORT A // TACTICAL ORBIT
+      </div>
+      <div className="absolute left-[calc(65%+0.75rem)] top-12 text-[9px] text-emerald-500/50 tracking-widest">
+        VIEWPORT B // CHASE POV
+      </div>
+
       {/* Center Reticle for Viewport B (Chase/FLIR POV) */}
       <div className="absolute right-[17.5%] top-1/2 -translate-y-1/2 translate-x-1/2 border border-emerald-500/30 w-36 h-36 rounded-full flex items-center justify-center pointer-events-none">
         <div className="w-2 h-2 bg-emerald-400 rounded-full" />
