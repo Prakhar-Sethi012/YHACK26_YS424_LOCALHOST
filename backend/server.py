@@ -1,6 +1,10 @@
 """
-AEGIS-NAV Backend 1: Stateless Simulation & Algorithmic Compute Engine
+AEGIS-NAV Backend 1: 3D Physics & Kinematics Engine
 FastAPI + WebSocket Server streaming at 20 Hz.
+
+Phase 5: planning is delegated to Backend 2's REST API (see
+simulation/rover_sim.py's module docstring) -- this process is now a client,
+not an independent planner.
 """
 
 import asyncio
@@ -30,8 +34,8 @@ logger = logging.getLogger("AEGIS-NAV-BACKEND")
 
 app = FastAPI(
     title="AEGIS-NAV Simulation Engine",
-    description="Stateless high-performance pathfinding & kinematic simulation service",
-    version="1.0.0"
+    description="High-performance 3D kinematic simulation service, planning via Backend 2's REST API",
+    version="1.1.0"
 )
 
 # Enable CORS for local frontend dev server
@@ -50,17 +54,30 @@ async def health_check():
     return {"status": "online", "service": "AEGIS-NAV-Backend-1", "frequency_hz": 20}
 
 
-@app.websocket("/ws/sim")
+@app.websocket("/ws/simulation")
 async def websocket_simulation_endpoint(websocket: WebSocket):
     """
     Primary 20 Hz bidirectional telemetry & command stream.
-    Stateless: Each active WebSocket manages its own in-memory simulation world.
+    Stateless: Each active WebSocket manages its own in-memory simulation world,
+    delegating global pathfinding to Backend 2's REST API.
     """
     await websocket.accept()
-    logger.info("Client connected to /ws/sim. Initializing fresh in-memory simulation session...")
+    logger.info("Client connected to /ws/simulation. Initializing fresh in-memory simulation session...")
 
     # Instantiate isolated stateless simulation world for this connection
     session = RoverSimulationSession(width=100, height=100)
+
+    try:
+        await session.initialize_backend2_planning()
+    except Exception as e:
+        logger.error(f"Failed to initialize planning via Backend 2: {e}")
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "data": {"message": f"Backend 2 planning initialization failed: {e}"}
+        }))
+        await session.close()
+        await websocket.close()
+        return
 
     # Send initial environment map, elevation grid, and static obstacles
     await websocket.send_text(json.dumps({
@@ -99,7 +116,7 @@ async def websocket_simulation_endpoint(websocket: WebSocket):
             while not incoming_commands.empty():
                 cmd = incoming_commands.get_nowait()
                 logger.info(f"Processing client mutation: {cmd.get('type')}")
-                mutation_result = session.handle_mutation(cmd)
+                mutation_result = await session.handle_mutation(cmd)
                 # Send mutation acknowledgement and benchmark results immediately
                 await websocket.send_text(json.dumps({
                     "type": "mutation_ack",
@@ -122,11 +139,12 @@ async def websocket_simulation_endpoint(websocket: WebSocket):
             await asyncio.sleep(sleep_duration)
 
     except WebSocketDisconnect:
-        logger.info("Client disconnected from /ws/sim.")
+        logger.info("Client disconnected from /ws/simulation.")
     except Exception as e:
         logger.error(f"Simulation loop encountered error: {e}")
     finally:
         listener_task.cancel()
+        await session.close()
         logger.info("Cleaned up simulation session.")
 
 
