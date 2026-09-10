@@ -66,49 +66,59 @@ async def websocket_simulation_endpoint(websocket: WebSocket):
 
     # Instantiate isolated stateless simulation world for this connection
     session = RoverSimulationSession(width=100, height=100)
+    listener_task: asyncio.Task | None = None
 
+    # Everything from here down -- Backend 2 init, the initial_state send, the
+    # listener task, and the 20Hz loop -- shares one try/except/finally so a
+    # disconnect at ANY point in that lifetime is handled the same way and
+    # session.close() (which releases the httpx client to Backend 2) always
+    # runs exactly once. Previously initial_state's send() sat outside any
+    # try block: a client that disconnects in that narrow window -- which
+    # React StrictMode's mount->unmount->remount cycle does on every dev
+    # load -- raised WebSocketDisconnect straight through FastAPI's routing
+    # as a raw traceback instead of the graceful branch below, and skipped
+    # session.close() entirely, leaking that session's HTTP client.
     try:
-        await session.initialize_backend2_planning()
-    except Exception as e:
-        logger.error(f"Failed to initialize planning via Backend 2: {e}")
-        await websocket.send_text(json.dumps({
-            "type": "error",
-            "data": {"message": f"Backend 2 planning initialization failed: {e}"}
-        }))
-        await session.close()
-        await websocket.close()
-        return
-
-    # Send initial environment map, elevation grid, and static obstacles
-    await websocket.send_text(json.dumps({
-        "type": "initial_state",
-        "data": session.get_initial_map()
-    }, default=to_serializable))
-
-    # Queue to ingest client mutation events asynchronously
-    incoming_commands: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
-
-    async def client_listener():
-        """Listens for map mutations (e.g. drop obstacle, add heat zone) from frontend."""
         try:
-            while True:
-                data_text = await websocket.receive_text()
-                try:
-                    payload = json.loads(data_text)
-                    await incoming_commands.put(payload)
-                except json.JSONDecodeError:
-                    logger.warning("Received invalid JSON payload from client")
-        except WebSocketDisconnect:
-            pass
+            await session.initialize_backend2_planning()
         except Exception as e:
-            logger.error(f"Error in client listener: {e}")
+            logger.error(f"Failed to initialize planning via Backend 2: {e}")
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "data": {"message": f"Backend 2 planning initialization failed: {e}"}
+            }))
+            await websocket.close()
+            return
 
-    # Launch incoming listener in background
-    listener_task = asyncio.create_task(client_listener())
+        # Send initial environment map, elevation grid, and static obstacles
+        await websocket.send_text(json.dumps({
+            "type": "initial_state",
+            "data": session.get_initial_map()
+        }, default=to_serializable))
 
-    tick_interval = 0.05  # 20 Hz = 50 ms per tick
+        # Queue to ingest client mutation events asynchronously
+        incoming_commands: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
 
-    try:
+        async def client_listener():
+            """Listens for map mutations (e.g. drop obstacle, add heat zone) from frontend."""
+            try:
+                while True:
+                    data_text = await websocket.receive_text()
+                    try:
+                        payload = json.loads(data_text)
+                        await incoming_commands.put(payload)
+                    except json.JSONDecodeError:
+                        logger.warning("Received invalid JSON payload from client")
+            except WebSocketDisconnect:
+                pass
+            except Exception as e:
+                logger.error(f"Error in client listener: {e}")
+
+        # Launch incoming listener in background
+        listener_task = asyncio.create_task(client_listener())
+
+        tick_interval = 0.05  # 20 Hz = 50 ms per tick
+
         while True:
             t_start = asyncio.get_event_loop().time()
 
@@ -143,7 +153,8 @@ async def websocket_simulation_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.error(f"Simulation loop encountered error: {e}")
     finally:
-        listener_task.cancel()
+        if listener_task is not None:
+            listener_task.cancel()
         await session.close()
         logger.info("Cleaned up simulation session.")
 
