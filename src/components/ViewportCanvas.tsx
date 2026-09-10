@@ -5,6 +5,9 @@ import { useMissionStore } from '../store/useMissionStore';
 
 export const ViewportCanvas: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
+  // OrbitControls needs its own element to listen on, scoped to exactly
+  // Viewport A -- see the note above the OrbitControls construction below.
+  const orbitZoneRef = useRef<HTMLDivElement>(null);
   const { initialState, activeTool, sendDropObstacle, sendAddHeatZone } = useMissionStore();
 
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -22,7 +25,7 @@ export const ViewportCanvas: React.FC = () => {
 
   // Initialization: Scene, Cameras, Renderer
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current || !orbitZoneRef.current) return;
     const width = containerRef.current.clientWidth;
     const height = containerRef.current.clientHeight;
 
@@ -44,7 +47,15 @@ export const ViewportCanvas: React.FC = () => {
     tacticalCam.lookAt(0, 0, 0);
     tacticalCameraRef.current = tacticalCam;
 
-    const controls = new OrbitControls(tacticalCam, renderer.domElement);
+    // OrbitControls attaches its pointer/wheel listeners directly to whatever
+    // element it's given. Pointing it at the full canvas (which spans both
+    // viewports) meant a drag starting anywhere in Viewport B silently
+    // orbited the Viewport A tactical camera too -- nothing visibly wrong in
+    // B (its camera is programmatic, not orbit-controlled), but A's view
+    // would jump the next time you looked at it. Scoping it to a transparent
+    // overlay sized to exactly Viewport A's 65% means drags starting in B
+    // never reach these listeners at all.
+    const controls = new OrbitControls(tacticalCam, orbitZoneRef.current);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.maxPolarAngle = Math.PI / 2 - 0.05;
@@ -410,6 +421,11 @@ export const ViewportCanvas: React.FC = () => {
       className={`relative w-full h-full overflow-hidden select-none ${
         activeTool === 'select' ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'
       }`}
-    />
+    >
+      {/* Scopes OrbitControls' listeners to Viewport A -- see the comment by
+          its construction above. Transparent, inherits cursor from the
+          container above, and pointerdown still bubbles up to it. */}
+      <div ref={orbitZoneRef} className="absolute left-0 top-0 h-full w-[65%] z-[1]" />
+    </div>
   );
 };
