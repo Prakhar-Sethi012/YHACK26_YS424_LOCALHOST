@@ -61,6 +61,18 @@ export const ViewportCanvas: React.FC = () => {
     const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
     dirLight.position.set(50, 100, 50);
     dirLight.castShadow = true;
+    // Default shadow camera frustum is +/-5 units -- fine for a small demo
+    // scene, but this terrain spans +/-50 in world space, so without this
+    // almost the entire 100x100 grid (and most of the rover's travel) fell
+    // outside the shadow camera and rendered with no shadow at all.
+    dirLight.shadow.camera.left = -60;
+    dirLight.shadow.camera.right = 60;
+    dirLight.shadow.camera.top = 60;
+    dirLight.shadow.camera.bottom = -60;
+    dirLight.shadow.camera.near = 1;
+    dirLight.shadow.camera.far = 250;
+    dirLight.shadow.mapSize.set(2048, 2048);
+    dirLight.shadow.bias = -0.0015;
     scene.add(dirLight);
 
     // Rover Marker Mesh
@@ -130,6 +142,7 @@ export const ViewportCanvas: React.FC = () => {
     return () => {
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', handleResize);
+      controls.dispose();
       renderer.dispose();
       if (containerRef.current) {
         containerRef.current.innerHTML = '';
