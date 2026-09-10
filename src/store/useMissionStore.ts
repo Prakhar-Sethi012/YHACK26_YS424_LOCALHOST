@@ -37,7 +37,17 @@ export const useMissionStore = create<MissionStore>((set) => ({
   replanSegmentNotice: false,
 
   setWsConnected: (connected) => set({ wsConnected: connected }),
-  setInitialState: (data) => set({ initialState: data }),
+  setInitialState: (data) =>
+    set({
+      initialState: data,
+      // A fresh initial_state means a brand-new mission -- first connect, or
+      // a reconnect after a drop (see useSimulationSocket's auto-reconnect).
+      // Victims/acks from whatever mission was running before don't apply to
+      // this grid.
+      detectedVictims: new Map(),
+      activeSOSModal: null,
+      lastMutationAck: null,
+    }),
   setActiveTool: (tool) => set({ activeTool: tool }),
   dismissSOSModal: () => set({ activeSOSModal: null }),
   setMutationAck: (ack) => set({ lastMutationAck: ack }),

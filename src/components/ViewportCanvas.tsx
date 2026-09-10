@@ -142,13 +142,18 @@ export const ViewportCanvas: React.FC = () => {
     if (!initialState || !sceneRef.current) return;
     const scene = sceneRef.current;
 
+    // A fresh initial_state means a brand-new mission -- first connect, or a
+    // reconnect after a drop (useSimulationSocket now retries automatically).
+    // Everything tied to the previous mission's grid -- the terrain itself,
+    // God-Mode markers, victim beacons, dynamic obstacle spheres, and the
+    // last-drawn path line -- is stale and must be disposed, not just
+    // orphaned, or every reconnect leaks GPU-side geometry/material buffers.
     if (terrainMeshRef.current) {
       scene.remove(terrainMeshRef.current);
+      terrainMeshRef.current.geometry.dispose();
+      (terrainMeshRef.current.material as THREE.Material).dispose();
     }
 
-    // A fresh initial_state means a brand-new mission (new WS session) --
-    // sculpted markers from the previous mission's God-Mode session no
-    // longer correspond to anything on the new grid, so clear them out.
     godModeMarkersRef.current.forEach((marker) => {
       scene.remove(marker);
       marker.traverse((child) => {
@@ -159,6 +164,31 @@ export const ViewportCanvas: React.FC = () => {
       });
     });
     godModeMarkersRef.current = [];
+
+    victimMarkersRef.current.forEach((marker) => {
+      scene.remove(marker);
+      marker.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          (child.material as THREE.Material).dispose();
+        }
+      });
+    });
+    victimMarkersRef.current.clear();
+
+    dynamicObstacleMeshesRef.current.forEach((mesh) => {
+      scene.remove(mesh);
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+    });
+    dynamicObstacleMeshesRef.current.clear();
+
+    if (pathLineRef.current) {
+      scene.remove(pathLineRef.current);
+      pathLineRef.current.geometry.dispose();
+      (pathLineRef.current.material as THREE.Material).dispose();
+      pathLineRef.current = null;
+    }
 
     const { width, height, elevation, temperature, obstacles } = initialState;
     const geometry = new THREE.PlaneGeometry(width, height, width - 1, height - 1);
