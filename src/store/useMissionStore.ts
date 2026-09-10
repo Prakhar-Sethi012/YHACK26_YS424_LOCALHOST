@@ -9,7 +9,6 @@ interface MissionStore {
   detectedVictims: Map<string, SOSPayload>;
   activeSOSModal: SOSPayload | null;
   lastMutationAck: MutationAck | null;
-  replanSegmentNotice: boolean;
 
   setWsConnected: (connected: boolean) => void;
   setInitialState: (data: InitialStateData) => void;
@@ -34,7 +33,6 @@ export const useMissionStore = create<MissionStore>((set) => ({
   detectedVictims: new Map(),
   activeSOSModal: null,
   lastMutationAck: null,
-  replanSegmentNotice: false,
 
   setWsConnected: (connected) => set({ wsConnected: connected }),
   setInitialState: (data) =>
