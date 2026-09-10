@@ -249,6 +249,18 @@ export const ViewportCanvas: React.FC = () => {
           }
           mesh.position.set(obs.x - 50, 1.5, obs.y - 50);
         });
+
+        // Evict meshes for obstacle slots the server no longer reports (e.g. an
+        // obstacle that left the map) -- without this, stale spheres from a
+        // shorter dynamic_obstacles array stay parked in the scene forever.
+        dynamicObstacleMeshesRef.current.forEach((mesh, idx) => {
+          if (idx >= dynamic_obstacles.length) {
+            sceneRef.current?.remove(mesh);
+            mesh.geometry.dispose();
+            (mesh.material as THREE.Material).dispose();
+            dynamicObstacleMeshesRef.current.delete(idx);
+          }
+        });
       }
 
       // Render Revealed Victims (Fog-of-war compliance)
