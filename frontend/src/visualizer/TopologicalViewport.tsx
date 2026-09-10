@@ -1,5 +1,5 @@
 import { Suspense, useMemo } from 'react';
-import { OrbitControls, Environment, Stars } from '@react-three/drei';
+import { OrbitControls } from '@react-three/drei';
 import TerrainMesh from './TerrainMesh';
 import GlbTerrain from './GlbTerrain';
 import InstancedObstacles from './InstancedObstacles';
@@ -86,9 +86,34 @@ export default function TopologicalViewport({
   telemetry, path3d, elevationData, temperatureData, obstacleData, victims, dynamicObstacles, onTerrainClick
 }: Props) {
   const terrainVisual = useSimulationStore((s) => s.terrainVisual);
+  const staticElevationData = useSimulationStore((s) => s.staticElevationData);
+
+  const getRoverY = (x: number, y: number, defaultZ: number) => {
+    if (terrainVisual === 'glb_mesh' && staticElevationData) {
+      const cx = Math.max(0, Math.min(99, x));
+      const cy = Math.max(0, Math.min(99, y));
+      const x0 = Math.floor(cx);
+      const x1 = Math.min(99, x0 + 1);
+      const y0 = Math.floor(cy);
+      const y1 = Math.min(99, y0 + 1);
+      
+      const tx = cx - x0;
+      const ty = cy - y0;
+      
+      const h00 = staticElevationData[x0]?.[y0] ?? 0;
+      const h10 = staticElevationData[x1]?.[y0] ?? 0;
+      const h01 = staticElevationData[x0]?.[y1] ?? 0;
+      const h11 = staticElevationData[x1]?.[y1] ?? 0;
+      
+      const h0 = h00 * (1 - tx) + h10 * tx;
+      const h1 = h01 * (1 - tx) + h11 * tx;
+      return h0 * (1 - ty) + h1 * ty;
+    }
+    return defaultZ * HEIGHT_SCALE + 0.4;
+  };
 
   const roverPos: [number, number, number] = telemetry
-    ? [telemetry.x - 50, telemetry.z * HEIGHT_SCALE + 0.4, telemetry.y - 50]
+    ? [telemetry.x - 50, getRoverY(telemetry.x, telemetry.y, telemetry.z), telemetry.y - 50]
     : [0, 0.4, 0];
 
   return (
@@ -98,13 +123,13 @@ export default function TopologicalViewport({
       <color attach="background" args={['#050508']} />
 
       {/* Lighting */}
-      <ambientLight intensity={0.3} color="#4488aa" />
+      <ambientLight intensity={0.5} color="#5599bb" />
       <directionalLight
         position={[20, 40, 10]}
-        intensity={1.2}
+        intensity={1.0}
         color="#ffeedd"
         castShadow
-        shadow-mapSize={[2048, 2048]}
+        shadow-mapSize={[512, 512]}
         shadow-camera-far={200}
         shadow-camera-left={-60}
         shadow-camera-right={60}
@@ -112,14 +137,9 @@ export default function TopologicalViewport({
         shadow-camera-bottom={-60}
       />
       {/* Rim light from behind */}
-      <directionalLight position={[-20, 10, -30]} intensity={0.4} color="#2244aa" />
+      <directionalLight position={[-20, 10, -30]} intensity={0.6} color="#3355cc" />
 
-      {/* Stars */}
-      <Stars radius={120} depth={50} count={3000} factor={3} fade speed={0.5} />
-
-      <Suspense fallback={null}>
-        <Environment preset="night" />
-      </Suspense>
+      {/* Removed Stars and Environment for perf */}
 
       {/* Camera Controls */}
       <OrbitControls

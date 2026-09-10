@@ -300,14 +300,25 @@ function ProceduralRover({ position, headingRad, slopeDeg }: Omit<Props, 'veloci
 
 export default function RoverModel(props: Omit<Props, 'velocity'> & { velocity?: number }) {
   const roverVisual = useSimulationStore((s) => s.roverVisual);
+  const groupRef = useRef<THREE.Group>(null);
 
-  if (roverVisual === 'procedural') {
-    return <ProceduralRover {...props} />;
-  }
+  useFrame((_, delta) => {
+    if (groupRef.current) {
+      groupRef.current.position.x = THREE.MathUtils.damp(groupRef.current.position.x, props.position[0], 8, delta);
+      groupRef.current.position.y = THREE.MathUtils.damp(groupRef.current.position.y, props.position[1], 8, delta);
+      groupRef.current.position.z = THREE.MathUtils.damp(groupRef.current.position.z, props.position[2], 8, delta);
+    }
+  });
 
   return (
-    <Suspense fallback={<ProceduralRover {...props} />}>
-      <GlbRover position={props.position} headingRad={props.headingRad} slopeDeg={props.slopeDeg} />
-    </Suspense>
+    <group ref={groupRef} position={props.position}>
+      {roverVisual === 'procedural' ? (
+        <ProceduralRover {...props} position={[0, 0, 0]} />
+      ) : (
+        <Suspense fallback={<ProceduralRover {...props} position={[0, 0, 0]} />}>
+          <GlbRover position={[0, 0, 0]} headingRad={props.headingRad} slopeDeg={props.slopeDeg} />
+        </Suspense>
+      )}
+    </group>
   );
 }

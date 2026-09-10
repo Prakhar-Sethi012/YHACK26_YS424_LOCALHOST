@@ -1,5 +1,5 @@
 import { Suspense, useRef } from 'react';
-import { PerspectiveCamera, Environment, Stars } from '@react-three/drei';
+import { PerspectiveCamera } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import TerrainMesh from './TerrainMesh';
@@ -26,39 +26,76 @@ export default function ChaseCamViewport({
   telemetry, path3d, elevationData, temperatureData, obstacleData, victims, dynamicObstacles
 }: Props) {
   const terrainVisual = useSimulationStore((s) => s.terrainVisual);
+  const staticElevationData = useSimulationStore((s) => s.staticElevationData);
   const cameraRef = useRef<THREE.PerspectiveCamera>(null);
   const camTarget = useRef(new THREE.Vector3());
   const camPos = useRef(new THREE.Vector3(0, 5, 10));
+  const smoothHeading = useRef(0);
+
+  const getRoverY = (x: number, y: number, defaultZ: number) => {
+    if (terrainVisual === 'glb_mesh' && staticElevationData) {
+      const cx = Math.max(0, Math.min(99, x));
+      const cy = Math.max(0, Math.min(99, y));
+      const x0 = Math.floor(cx);
+      const x1 = Math.min(99, x0 + 1);
+      const y0 = Math.floor(cy);
+      const y1 = Math.min(99, y0 + 1);
+      
+      const tx = cx - x0;
+      const ty = cy - y0;
+      
+      const h00 = staticElevationData[x0]?.[y0] ?? 0;
+      const h10 = staticElevationData[x1]?.[y0] ?? 0;
+      const h01 = staticElevationData[x0]?.[y1] ?? 0;
+      const h11 = staticElevationData[x1]?.[y1] ?? 0;
+      
+      const h0 = h00 * (1 - tx) + h10 * tx;
+      const h1 = h01 * (1 - tx) + h11 * tx;
+      return h0 * (1 - ty) + h1 * ty;
+    }
+    return defaultZ * HEIGHT_SCALE;
+  };
 
   useFrame((_, delta) => {
     if (!cameraRef.current || !telemetry) return;
 
     const rx = telemetry.x - 50;
-    const ry = telemetry.z * HEIGHT_SCALE;
+    const ry = getRoverY(telemetry.x, telemetry.y, telemetry.z);
     const rz = telemetry.y - 50;
     const roverWorld = new THREE.Vector3(rx, ry, rz);
 
-    // Chase offset: behind the rover based on heading
-    const heading = telemetry.heading_rad;
+    // Smooth the heading to prevent camera violently shaking
+    let diff = telemetry.heading_rad - smoothHeading.current;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    smoothHeading.current += diff * (1 - Math.exp(-5 * delta));
+
+    // Chase offset: behind the rover based on smoothed heading
     const chaseDist = 6;
     const chaseHeight = 3.5;
     const offset = new THREE.Vector3(
-      -Math.sin(heading) * chaseDist,
+      -Math.sin(smoothHeading.current) * chaseDist,
       chaseHeight,
-      -Math.cos(heading) * chaseDist
+      -Math.cos(smoothHeading.current) * chaseDist
     );
     const desiredCamPos = roverWorld.clone().add(offset);
 
-    // Smooth interpolation
-    camPos.current.lerp(desiredCamPos, Math.min(1, delta * 5));
-    camTarget.current.lerp(roverWorld.clone().add(new THREE.Vector3(0, 0.5, 0)), Math.min(1, delta * 8));
+    // Smooth interpolation with damp for no jitter
+    camPos.current.x = THREE.MathUtils.damp(camPos.current.x, desiredCamPos.x, 4, delta);
+    camPos.current.y = THREE.MathUtils.damp(camPos.current.y, desiredCamPos.y, 4, delta);
+    camPos.current.z = THREE.MathUtils.damp(camPos.current.z, desiredCamPos.z, 4, delta);
+
+    const targetY = roverWorld.y + 0.5;
+    camTarget.current.x = THREE.MathUtils.damp(camTarget.current.x, roverWorld.x, 6, delta);
+    camTarget.current.y = THREE.MathUtils.damp(camTarget.current.y, targetY, 6, delta);
+    camTarget.current.z = THREE.MathUtils.damp(camTarget.current.z, roverWorld.z, 6, delta);
 
     cameraRef.current.position.copy(camPos.current);
     cameraRef.current.lookAt(camTarget.current);
   });
 
   const roverPos: [number, number, number] = telemetry
-    ? [telemetry.x - 50, telemetry.z * HEIGHT_SCALE, telemetry.y - 50]
+    ? [telemetry.x - 50, getRoverY(telemetry.x, telemetry.y, telemetry.z), telemetry.y - 50]
     : [-40, 0, -40];
 
   return (
@@ -69,22 +106,18 @@ export default function ChaseCamViewport({
       <PerspectiveCamera ref={cameraRef} makeDefault fov={65} near={0.1} far={300} />
 
       {/* Main sun-like directional light */}
-      <ambientLight intensity={0.35} color="#334455" />
+      <ambientLight intensity={0.6} color="#445566" />
       <directionalLight
         position={[15, 30, 10]}
-        intensity={1.4}
+        intensity={1.2}
         color="#fff5ee"
         castShadow
-        shadow-mapSize={[2048, 2048]}
+        shadow-mapSize={[512, 512]}
       />
       {/* Backfill light */}
-      <directionalLight position={[-10, 5, -20]} intensity={0.4} color="#1a2255" />
+      <directionalLight position={[-10, 5, -20]} intensity={0.6} color="#2a3255" />
 
-      <Stars radius={80} depth={50} count={2000} factor={3} fade speed={0.5} />
-
-      <Suspense fallback={null}>
-        <Environment preset="night" />
-      </Suspense>
+      {/* Removed Stars and Environment for maximum performance on integrated GPUs */}
 
       {/* Terrain & Physical Obstacles */}
       {terrainVisual === 'glb_mesh' ? (

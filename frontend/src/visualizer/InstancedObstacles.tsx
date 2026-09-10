@@ -1,5 +1,6 @@
-﻿import { useMemo, useRef, useEffect } from 'react';
+import { useMemo, useRef, useEffect } from 'react';
 import * as THREE from 'three';
+import { useSimulationStore } from '../store/useSimulationStore';
 
 interface Props {
   obstacleData: boolean[][];
@@ -10,6 +11,8 @@ interface Props {
 export default function InstancedObstacles({ obstacleData, elevationData, heightScale = 0.35 }: Props) {
   const slabMeshRef = useRef<THREE.InstancedMesh>(null);
   const rubbleMeshRef = useRef<THREE.InstancedMesh>(null);
+  const terrainVisual = useSimulationStore(s => s.terrainVisual);
+  const staticElevationData = useSimulationStore(s => s.staticElevationData);
 
   const { slabTransforms, rubbleTransforms } = useMemo(() => {
     const slabs: { pos: [number, number, number]; rot: [number, number, number]; scale: [number, number, number] }[] = [];
@@ -18,10 +21,17 @@ export default function InstancedObstacles({ obstacleData, elevationData, height
     const rows = obstacleData.length;
     const cols = obstacleData[0]?.length ?? 0;
 
+    const getElev = (r: number, c: number) => {
+      if (terrainVisual === 'glb_mesh' && staticElevationData) {
+        return staticElevationData[c]?.[r] ?? 0;
+      }
+      return (elevationData[r]?.[c] ?? 0) * heightScale;
+    };
+
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (obstacleData[r]?.[c]) {
-          const elev = (elevationData[r]?.[c] ?? 0) * heightScale;
+          const elev = getElev(r, c);
           const x = c - 50;
           const z = r - 50;
 
@@ -49,7 +59,7 @@ export default function InstancedObstacles({ obstacleData, elevationData, height
     }
 
     return { slabTransforms: slabs, rubbleTransforms: rubble };
-  }, [obstacleData, elevationData, heightScale]);
+  }, [obstacleData, elevationData, heightScale, terrainVisual, staticElevationData]);
 
   useEffect(() => {
     const dummy = new THREE.Object3D();

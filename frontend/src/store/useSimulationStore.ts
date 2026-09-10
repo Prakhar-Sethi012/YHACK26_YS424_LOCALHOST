@@ -76,6 +76,8 @@ interface SimulationState {
   terrainVisual: 'digital_twin' | 'glb_mesh';
   roverVisual: 'leo_glb' | 'procedural';
 
+  staticElevationData: number[][] | null;
+
   connect: () => void;
   disconnect: () => void;
   setGodModeTool: (tool: GodModeTool) => void;
@@ -84,6 +86,7 @@ interface SimulationState {
   dismissSosAlert: () => void;
   setTerrainVisual: (v: 'digital_twin' | 'glb_mesh') => void;
   setRoverVisual: (v: 'leo_glb' | 'procedural') => void;
+  setStaticElevationData: (data: number[][]) => void;
 }
 
 let _ws: WebSocket | null = null;
@@ -93,6 +96,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   telemetry: null,
   path3d: [],
   elevationData: null,
+  staticElevationData: null,
   temperatureData: null,
   obstacleData: null,
   victims: [],
@@ -104,8 +108,10 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   lastMutationAck: null,
   latestSosAlert: null,
   sosCount: 0,
-  terrainVisual: 'digital_twin',
+  terrainVisual: 'glb_mesh',
   roverVisual: 'leo_glb',
+
+  setStaticElevationData: (data) => set({ staticElevationData: data }),
 
   connect: () => {
     if (_ws) return;
