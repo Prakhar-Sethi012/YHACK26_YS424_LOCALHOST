@@ -256,6 +256,19 @@ class RoverSimulationSession:
             "nodes_expanded": 0,  # aegis_core's PathResult doesn't expose this
             "energy_kj": 0.0,
         }
+        # Backend 2 also (re)initializes D* Lite to this same start/goal (see
+        # routers/plan.py's plan_baseline) -- its active path is identical to
+        # A*'s until the first incremental repair diverges them. Mirror the
+        # stats here too, or the HUD keeps showing whatever a PREVIOUS
+        # /api/grid/mutate call produced (or the all-zero initial value, if
+        # none ever ran) as if it still described the current plan, even
+        # though that D* Lite instance no longer exists server-side.
+        self.benchmark_stats["dstar_lite"] = {
+            "latency_ms": data["compute_time_ms"],
+            "path_length": data["length"],
+            "nodes_expanded": 0,
+            "energy_kj": 0.0,
+        }
 
         return {
             "status": "replanned",

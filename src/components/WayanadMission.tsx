@@ -1,21 +1,30 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { MapPin, Skull, Activity, Zap, AlertTriangle, RotateCcw, Route, Ban, FileBarChart } from 'lucide-react';
+import { MapPin, Skull, Activity, Zap, AlertTriangle, RotateCcw, Route, Ban, FileBarChart, ChevronDown, ChevronUp } from 'lucide-react';
 
 // The heightmap's native pixel size doesn't match the app's planning-grid
 // convention -- ingest_wayanad.py resamples it to this fixed square grid
 // (see that script's docstring for why obstacles and elevation are resized
-// differently). Must match GRID_SIZE there.
-const GRID_SIZE = 200;
+// differently). Must match GRID_SIZE there -- also chosen there to match
+// CommandCenter's own grid, since D* Lite's update_obstacles() does a full
+// grid-wide clearance recompute (Grid2D::recompute_clearance(), a
+// multi-source Dijkstra over every cell) on every mutation regardless of
+// obstacle size, so a bigger grid means real, unavoidably worse D* Lite
+// repair latency independent of anything this page does.
+const GRID_SIZE = 100;
 
-// Real relief here is only 0-25m across a 200-unit-wide grid (~12% max
+// Real relief here is only 0-25m across a 100-unit-wide grid (~25% max
 // slope ratio) -- fine for A*/D* Lite's real physics, but visually flat for
 // a "cinematic" terrain. This multiplier only affects the Three.js mesh;
 // the elevation values sent to Backend 2 stay the true meters value.
 const VISUAL_ELEVATION_EXAGGERATION = 2.5;
 
-const MUTATE_RADIUS = 5;
+// Matches CommandCenter's own default drop_obstacle radius -- fewer changed
+// cells per mutation, on top of the smaller grid above, keeps this demo's
+// D* Lite repairs closer to genuinely incremental rather than touching a
+// large fraction of the map at once.
+const MUTATE_RADIUS = 3;
 const LANDSLIDE_DELAY_MS = 3000;
 
 // No real fuel telemetry exists for this static REST-only page (that's
@@ -120,14 +129,25 @@ function slopeDegreesAt(grid: WayanadGrid, x: number, y: number): number {
 // D* Lite's currently active path -- reports whichever direction the real
 // numbers actually go (a detour that avoids a hazard is not always
 // cheaper), rather than always framing D* Lite as the winner.
-function buildRoutingAnalysis(
+interface RoutingAnalysis {
+  identical: boolean;
+  divergeSector: GridCoord | null;
+  slopeDeg: number;
+  distDeltaPct: number;
+  fuelDeltaPct: number;
+  latencyRatio: number;
+  hazardsAvoidedCount: number;
+  verdict: string;
+}
+
+function computeRoutingAnalysis(
   astarPath: GridCoord[],
   dstarPath: GridCoord[],
   grid: WayanadGrid,
   astarBenchmark: AlgoBenchmark,
   dstarBenchmark: AlgoBenchmark,
   hazardsAvoidedCount: number
-): string {
+): RoutingAnalysis {
   const minLen = Math.min(astarPath.length, dstarPath.length);
   let divergeIdx = -1;
   for (let i = 0; i < minLen; i++) {
@@ -136,8 +156,20 @@ function buildRoutingAnalysis(
       break;
     }
   }
+
+  const latencyRatio = astarBenchmark.latencyMs > 0 ? dstarBenchmark.latencyMs / astarBenchmark.latencyMs : 1;
+
   if (divergeIdx === -1 && astarPath.length === dstarPath.length) {
-    return "D* Lite's active route is currently identical to the A* baseline -- no repair has diverged them yet.";
+    return {
+      identical: true,
+      divergeSector: null,
+      slopeDeg: 0,
+      distDeltaPct: 0,
+      fuelDeltaPct: 0,
+      latencyRatio,
+      hazardsAvoidedCount,
+      verdict: "D* Lite's active route is currently identical to the A* baseline -- no repair has diverged them yet.",
+    };
   }
 
   const refIdx = divergeIdx === -1 ? Math.floor(astarPath.length / 2) : divergeIdx;
@@ -163,13 +195,16 @@ function buildRoutingAnalysis(
 
   const distClause = `${distDeltaPct >= 0 ? '+' : ''}${distDeltaPct.toFixed(0)}% distance`;
 
+  let verdict: string;
   if (fuelDeltaPct >= 1) {
-    return `D* Lite's repaired route diverges near sector (${sx}, ${sy})${hazardClause}, ${slopeClause}, conserving an estimated ${fuelDeltaPct.toFixed(0)}% fuel versus the frozen A* baseline (${distClause}).`;
+    verdict = `D* Lite's repaired route diverges near sector (${sx}, ${sy})${hazardClause}, ${slopeClause}, conserving an estimated ${fuelDeltaPct.toFixed(0)}% fuel versus the frozen A* baseline (${distClause}).`;
+  } else if (fuelDeltaPct <= -1) {
+    verdict = `D* Lite's repaired route diverges near sector (${sx}, ${sy})${hazardClause}, ${slopeClause}, at an estimated ${Math.abs(fuelDeltaPct).toFixed(0)}% fuel cost versus the frozen A* baseline (${distClause}) -- here the safer detour cost more than it saved.`;
+  } else {
+    verdict = `D* Lite's repaired route diverges near sector (${sx}, ${sy})${hazardClause}, ${slopeClause}, with negligible net change in estimated fuel use versus the frozen A* baseline.`;
   }
-  if (fuelDeltaPct <= -1) {
-    return `D* Lite's repaired route diverges near sector (${sx}, ${sy})${hazardClause}, ${slopeClause}, at an estimated ${Math.abs(fuelDeltaPct).toFixed(0)}% fuel cost versus the frozen A* baseline (${distClause}) -- here the safer detour cost more than it saved.`;
-  }
-  return `D* Lite's repaired route diverges near sector (${sx}, ${sy})${hazardClause}, ${slopeClause}, with negligible net change in estimated fuel use versus the frozen A* baseline.`;
+
+  return { identical: false, divergeSector: [sx, sy], slopeDeg, distDeltaPct, fuelDeltaPct, latencyRatio, hazardsAvoidedCount, verdict };
 }
 
 // Mirrors the circular cell-selection backend/simulation/rover_sim.py uses
@@ -287,6 +322,7 @@ export const WayanadMission: React.FC = () => {
   const [dstarPathData, setDstarPathData] = useState<GridCoord[] | null>(null);
   const [hazardsAvoidedCount, setHazardsAvoidedCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [analysisExpanded, setAnalysisExpanded] = useState(true);
 
   // Scene/camera/renderer setup -- single full-screen viewport, unlike
   // CommandCenter's dual scissor split, since this page is its own route.
@@ -640,7 +676,7 @@ export const WayanadMission: React.FC = () => {
 
   const routingAnalysis = useMemo(() => {
     if (!astarPathData || !dstarPathData || !astarBenchmark || !dstarBenchmark || !gridRef.current) return null;
-    return buildRoutingAnalysis(astarPathData, dstarPathData, gridRef.current, astarBenchmark, dstarBenchmark, hazardsAvoidedCount);
+    return computeRoutingAnalysis(astarPathData, dstarPathData, gridRef.current, astarBenchmark, dstarBenchmark, hazardsAvoidedCount);
   }, [astarPathData, dstarPathData, astarBenchmark, dstarBenchmark, hazardsAvoidedCount]);
 
   const resolutionM = gridRef.current?.resolution ?? 1.0;
@@ -785,10 +821,50 @@ export const WayanadMission: React.FC = () => {
 
         {routingAnalysis && (
           <div className="border-t border-white/10 pt-3 mt-3">
-            <div className="text-[10px] text-neutral-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-              <FileBarChart className="w-3 h-3" /> Tactical Routing Analysis
-            </div>
-            <p className="text-[10px] text-neutral-300 leading-relaxed">{routingAnalysis}</p>
+            <button
+              onClick={() => setAnalysisExpanded((e) => !e)}
+              className="w-full flex items-center justify-between text-[10px] text-neutral-400 uppercase tracking-wider mb-1.5"
+            >
+              <span className="flex items-center gap-1.5">
+                <FileBarChart className="w-3 h-3" /> Tactical Routing Analysis
+              </span>
+              {analysisExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+
+            {analysisExpanded && (
+              <>
+                {!routingAnalysis.identical && (
+                  <div className="grid grid-cols-2 gap-y-1 text-[10px] text-neutral-300 mb-2">
+                    <span className="text-neutral-500">Divergence sector</span>
+                    <span className="text-right">
+                      {routingAnalysis.divergeSector ? `(${routingAnalysis.divergeSector[0]}, ${routingAnalysis.divergeSector[1]})` : '--'}
+                    </span>
+
+                    <span className="text-neutral-500">Terrain at divergence</span>
+                    <span className="text-right">{routingAnalysis.slopeDeg.toFixed(1)}° slope</span>
+
+                    <span className="text-neutral-500">Distance delta</span>
+                    <span className={`text-right ${routingAnalysis.distDeltaPct <= 0 ? 'text-emerald-300' : 'text-amber-300'}`}>
+                      {routingAnalysis.distDeltaPct >= 0 ? '+' : ''}
+                      {routingAnalysis.distDeltaPct.toFixed(1)}%
+                    </span>
+
+                    <span className="text-neutral-500">Fuel delta</span>
+                    <span className={`text-right ${routingAnalysis.fuelDeltaPct >= 0 ? 'text-emerald-300' : 'text-amber-300'}`}>
+                      {routingAnalysis.fuelDeltaPct >= 0 ? '-' : '+'}
+                      {Math.abs(routingAnalysis.fuelDeltaPct).toFixed(1)}%
+                    </span>
+
+                    <span className="text-neutral-500">Repair vs. cold-start</span>
+                    <span className="text-right">{routingAnalysis.latencyRatio.toFixed(2)}x latency</span>
+
+                    <span className="text-neutral-500">Hazards routed around</span>
+                    <span className="text-right">{routingAnalysis.hazardsAvoidedCount}</span>
+                  </div>
+                )}
+                <p className="text-[10px] text-neutral-300 leading-relaxed">{routingAnalysis.verdict}</p>
+              </>
+            )}
           </div>
         )}
 

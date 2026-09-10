@@ -36,7 +36,16 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageFilter
 
-GRID_SIZE = 200
+# Matches CommandCenter's own grid (see backend/simulation/cost_field.py) --
+# not just for consistency. Backend 2's D* Lite update_obstacles() calls
+# Grid2D::recompute_clearance() on every mutation, which is a full
+# multi-source Dijkstra over the WHOLE grid (src/core/grid2d.cpp), not a
+# localized repair -- its cost scales with total cell count, independent of
+# how large the obstacle actually is. At 200x200 (40,000 cells, 4x this
+# size) D* Lite's real repair latency was consistently far worse than the
+# frozen A* cold-start baseline it's meant to be compared against, which
+# isn't a radius-tuning problem, it's a grid-size one.
+GRID_SIZE = 100
 ELEVATION_MIN_M = 0.0
 ELEVATION_MAX_M = 25.0
 DEFAULT_TEMPERATURE_C = 25.0

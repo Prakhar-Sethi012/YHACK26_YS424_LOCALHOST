@@ -1,14 +1,34 @@
-import React from 'react';
-import { Activity, ShieldAlert, Cpu, Radio, WifiOff, FlagTriangleRight, PauseCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { Activity, ShieldAlert, Cpu, Radio, WifiOff, FlagTriangleRight, PauseCircle, FileBarChart, ChevronDown, ChevronUp } from 'lucide-react';
 import { useMissionStore } from '../store/useMissionStore';
+import { TelemetryData } from '../types/mission';
 
 // Rover is considered to have arrived once it's within this many grid units
 // of the goal -- the sim's own arrival tolerance isn't exposed over the wire,
 // so this just needs to be a bit looser than final-approach jitter.
 const GOAL_ARRIVAL_RADIUS = 2.5;
 
+// Same honesty rule as WayanadMission's routing analysis: report whichever
+// direction the real benchmark numbers actually went, rather than always
+// framing D* Lite as the winner.
+function buildMissionDebrief(telemetry: TelemetryData): string {
+  const { power, benchmark, sos_count } = telemetry;
+  const hasBothLatencies = benchmark.astar.latency_ms > 0 && benchmark.dstar_lite.latency_ms > 0;
+  const ratio = hasBothLatencies ? benchmark.astar.latency_ms / benchmark.dstar_lite.latency_ms : null;
+
+  const speedClause =
+    ratio === null
+      ? 'no incremental D* Lite repair was benchmarked against a cold-start plan this mission.'
+      : ratio >= 1
+        ? `D* Lite's incremental repairs ran ${ratio.toFixed(1)}x faster than a fresh cold-start plan.`
+        : `D* Lite's incremental repairs took ${(1 / ratio).toFixed(1)}x longer than a fresh cold-start plan on this terrain.`;
+
+  return `Mission complete. ${sos_count} survivor${sos_count === 1 ? '' : 's'} located, ${power.total_energy_kj.toFixed(1)} kJ expended, ${power.battery_pct.toFixed(0)}% battery and ${power.fuel_liters.toFixed(2)} L fuel remaining. ${speedClause}`;
+}
+
 export const HUD: React.FC = () => {
   const { wsConnected, telemetry } = useMissionStore();
+  const [debriefExpanded, setDebriefExpanded] = useState(true);
 
   if (!telemetry) {
     return (
@@ -147,6 +167,38 @@ export const HUD: React.FC = () => {
             <div className="text-emerald-300">{benchmark.dstar_lite.path_length.toFixed(1)} m</div>
             <div className="text-neutral-400">Optimal</div>
           </div>
+
+          {missionComplete && (
+            <div className="border-t border-neutral-800 mt-2 pt-2">
+              <button
+                onClick={() => setDebriefExpanded((e) => !e)}
+                className="w-full flex items-center justify-between text-[10px] text-emerald-400 uppercase tracking-wider mb-1.5"
+              >
+                <span className="flex items-center gap-1.5">
+                  <FileBarChart className="w-3 h-3" /> Mission Debrief
+                </span>
+                {debriefExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+              {debriefExpanded && (
+                <>
+                  <div className="grid grid-cols-2 gap-y-1 text-[10px] text-neutral-300 mb-2">
+                    <span className="text-neutral-500">Survivors located</span>
+                    <span className="text-right">{sos_count}</span>
+
+                    <span className="text-neutral-500">Battery remaining</span>
+                    <span className="text-right">{power.battery_pct.toFixed(1)}%</span>
+
+                    <span className="text-neutral-500">Fuel remaining</span>
+                    <span className="text-right">{power.fuel_liters.toFixed(2)} L</span>
+
+                    <span className="text-neutral-500">Total energy expended</span>
+                    <span className="text-right">{power.total_energy_kj.toFixed(1)} kJ</span>
+                  </div>
+                  <p className="text-[10px] text-neutral-300 leading-relaxed">{buildMissionDebrief(telemetry)}</p>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
