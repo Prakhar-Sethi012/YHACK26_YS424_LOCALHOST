@@ -7,20 +7,19 @@ export const SOSModal: React.FC = () => {
 
   if (!activeSOSModal) return null;
 
-  const handleExportJSON = async () => {
-    try {
-      const response = await fetch('/api/incidents/tactical-export');
-      const data = await response.json();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${activeSOSModal.transmission_id}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('[Export Error]', err);
-    }
+  const handleExportJSON = () => {
+    // Backend 2's /api/incidents/tactical-export reads from a Postgres table
+    // that Backend 1's rover sim never POSTs detections into, so it always
+    // comes back empty for a victim just acquired over the WS stream. Export
+    // straight from the payload already sitting in this modal instead --
+    // it's the same data the operator is looking at, no round trip needed.
+    const blob = new Blob([JSON.stringify(activeSOSModal, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${activeSOSModal.transmission_id}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
