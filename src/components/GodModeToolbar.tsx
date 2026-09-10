@@ -1,11 +1,14 @@
 import React from 'react';
-import { MousePointer, Box, Flame, BatteryWarning, Flag, Target, Play, Pause } from 'lucide-react';
+import { MousePointer, Box, Flame, BatteryWarning, Flag, Target, Play, Pause, Gauge } from 'lucide-react';
 import { useMissionStore } from '../store/useMissionStore';
 import { ActiveTool } from '../types/mission';
 
+const TIME_WARP_FACTORS = [1, 2, 5] as const;
+
 export const GodModeToolbar: React.FC = () => {
-  const { activeTool, setActiveTool, sendEmergencyLowBattery, sendSetPaused, telemetry } = useMissionStore();
+  const { activeTool, setActiveTool, sendEmergencyLowBattery, sendSetPaused, sendSetTimeWarp, telemetry } = useMissionStore();
   const isPaused = telemetry?.paused ?? false;
+  const timeWarp = telemetry?.time_warp ?? 1;
 
   const toolClasses = (tool: ActiveTool) =>
     `flex items-center gap-2 px-3 py-1.5 rounded text-xs font-mono transition-colors border ${
@@ -53,6 +56,25 @@ export const GodModeToolbar: React.FC = () => {
         {isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
         {isPaused ? 'Resume Simulation' : 'Pause Simulation'}
       </button>
+
+      <div className="flex items-center gap-1.5 px-1">
+        <Gauge className="w-3.5 h-3.5 text-neutral-400" />
+        <div className="flex gap-1">
+          {TIME_WARP_FACTORS.map((factor) => (
+            <button
+              key={factor}
+              onClick={() => sendSetTimeWarp(factor)}
+              className={`flex-1 px-2.5 py-1 rounded text-xs font-mono font-bold transition-colors border ${
+                timeWarp === factor
+                  ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
+                  : 'bg-neutral-900/80 border-neutral-700/60 text-neutral-400 hover:text-white hover:bg-neutral-800'
+              }`}
+            >
+              {factor}x
+            </button>
+          ))}
+        </div>
+      </div>
 
       <button
         onClick={() => sendEmergencyLowBattery()}

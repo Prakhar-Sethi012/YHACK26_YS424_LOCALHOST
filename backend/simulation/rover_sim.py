@@ -47,6 +47,12 @@ Added for live operator control (play/pause + manual start/goal):
   return an ordinary "replanned" ack with no new frontend types needed.
   self.goal and self.paused are streamed in every telemetry frame (not just
   get_initial_map()) since either can change mid-mission now.
+
+Added for time-warp: "set_time_warp" only records the requested factor on
+self.time_warp -- server.py's tick loop is what actually multiplies dt by
+it before calling step(), same division of responsibility as "set_paused"
+above. The wall-clock tick rate (and therefore the WebSocket send cadence)
+is untouched; only the amount of simulated time each tick advances changes.
 """
 
 import asyncio
@@ -147,6 +153,13 @@ class RoverSimulationSession:
         # dynamic obstacles rather than just stopping the rover in place.
         self.paused: bool = False
         self._last_frame: Optional[Dict[str, Any]] = None
+
+        # 9. Time warp -- server.py's tick loop keeps ticking at real 20Hz
+        # (so the WebSocket cadence and everyone else's frame budget are
+        # unaffected) but scales the *simulated* dt passed into step() by
+        # this factor, so kinematics/fuel drain/movement advance faster per
+        # wall-clock tick without touching the network tick rate itself.
+        self.time_warp: float = 1.0
 
     # ------------------------------------------------------------------
     # Backend 2 integration
@@ -489,6 +502,7 @@ class RoverSimulationSession:
             "waypoint_index": self.current_waypoint_idx,
             "goal": list(self.goal),  # live -- set_goal can retarget this mid-mission
             "paused": self.paused,
+            "time_warp": self.time_warp,
             "dynamic_obstacles": [
                 {"x": round(o.x, 2), "y": round(o.y, 2), "vx": round(o.vx, 2), "vy": round(o.vy, 2), "radius": o.radius}
                 for o in self.dynamic_obstacles
@@ -505,15 +519,16 @@ class RoverSimulationSession:
         simulation -- what server.py streams at 20Hz while paused, so the
         rover and dynamic obstacles both stay frozen in place.
 
-        The cached frame's own "paused"/"goal" values were captured by
-        whatever step() call produced it, which happened before the pause
-        (or a mid-pause set_goal) took effect -- patch them from live state
-        rather than serving stale copies of fields that can change while
-        step() itself isn't running.
+        The cached frame's own "paused"/"goal"/"time_warp" values were
+        captured by whatever step() call produced it, which happened before
+        the pause (or a mid-pause set_goal/set_time_warp) took effect --
+        patch them from live state rather than serving stale copies of
+        fields that can change while step() itself isn't running.
         """
         frame = dict(self._last_frame) if self._last_frame is not None else self.step(dt=0.0)
         frame["paused"] = self.paused
         frame["goal"] = list(self.goal)
+        frame["time_warp"] = self.time_warp
         return frame
 
     def _sweep_perception_frustum(self) -> Optional[Dict[str, Any]]:
@@ -620,5 +635,15 @@ class RoverSimulationSession:
         elif action_type == "set_paused":
             self.paused = bool(payload.get("paused", False))
             return {"status": "no_op", "reason": f"simulation {'paused' if self.paused else 'resumed'}"}
+
+        elif action_type == "set_time_warp":
+            # Clamped defensively -- the UI only offers 1x/2x/5x, but nothing
+            # stops a client from sending an arbitrary factor, and a very
+            # large dt-per-tick would let the rover tunnel past waypoints
+            # and dynamic obstacles the DWA controller never got a chance to
+            # react to at the intermediate positions.
+            factor = float(payload.get("factor", 1.0))
+            self.time_warp = max(0.25, min(10.0, factor))
+            return {"status": "no_op", "reason": f"time warp set to {self.time_warp}x"}
 
         return {"status": "ignored", "reason": f"unknown mutation type: {action_type!r}"}

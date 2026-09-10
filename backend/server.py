@@ -136,11 +136,15 @@ async def websocket_simulation_endpoint(websocket: WebSocket):
             # 2. Advance physics, kinematics, and power draw by dt -- unless
             # paused, in which case re-stream the last computed frame so the
             # rover and dynamic obstacles both stay frozen in place rather
-            # than the stream going quiet.
+            # than the stream going quiet. time_warp scales the *simulated*
+            # dt only -- the wall-clock tick_interval below (and therefore
+            # the 20Hz WebSocket send cadence) is untouched, so kinematics/
+            # fuel drain/movement advance faster per tick without the stream
+            # itself speeding up or dropping frames.
             if session.paused:
                 telemetry_frame = session.get_last_frame()
             else:
-                telemetry_frame = session.step(dt=tick_interval)
+                telemetry_frame = session.step(dt=tick_interval * session.time_warp)
 
             # 3. Stream 20 Hz telemetry frame to client
             await websocket.send_text(json.dumps({
