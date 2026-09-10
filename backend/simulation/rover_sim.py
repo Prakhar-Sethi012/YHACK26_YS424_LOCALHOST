@@ -37,6 +37,16 @@ obstacle changes, not a general "recompute everything" call):
   incremental-repair path there at all -- this session falls back to a
   fresh /api/plan/baseline call for those, which does reset Backend 2's D*
   Lite state (same cost any full replan would carry).
+
+Added for live operator control (play/pause + manual start/goal):
+- "set_paused" doesn't touch physics itself -- server.py's tick loop is what
+  actually skips step() while self.paused is set, via get_last_frame(),
+  which freezes the rover AND the dynamic obstacles rather than advancing
+  either. "set_start"/"set_goal" both go through the same
+  _replan_via_baseline() path as the existing mutation handlers, so they
+  return an ordinary "replanned" ack with no new frontend types needed.
+  self.goal and self.paused are streamed in every telemetry frame (not just
+  get_initial_map()) since either can change mid-mission now.
 """
 
 import asyncio
@@ -131,6 +141,12 @@ class RoverSimulationSession:
         # 7. Backend 2 REST client
         self._http = httpx.AsyncClient(base_url=BACKEND2_BASE_URL, timeout=10.0)
         self._replan_task: Optional[asyncio.Task] = None
+
+        # 8. Play/pause -- server.py's tick loop skips step() entirely while
+        # paused (see get_last_frame()), which freezes the rover AND the
+        # dynamic obstacles rather than just stopping the rover in place.
+        self.paused: bool = False
+        self._last_frame: Optional[Dict[str, Any]] = None
 
     # ------------------------------------------------------------------
     # Backend 2 integration
@@ -454,7 +470,7 @@ class RoverSimulationSession:
         # 6. Victim Perception Frustum Sweep (60 deg cone, 12m radius)
         new_sos = self._sweep_perception_frustum()
 
-        return {
+        frame = {
             "pose": {
                 "x": round(self.x, 2),
                 "y": round(self.y, 2),
@@ -471,6 +487,8 @@ class RoverSimulationSession:
             "power": power_telemetry,
             "path": self.current_path_3d,  # [(x, y, z), ...] -- smoothed Path3D
             "waypoint_index": self.current_waypoint_idx,
+            "goal": list(self.goal),  # live -- set_goal can retarget this mid-mission
+            "paused": self.paused,
             "dynamic_obstacles": [
                 {"x": round(o.x, 2), "y": round(o.y, 2), "vx": round(o.vx, 2), "vy": round(o.vy, 2), "radius": o.radius}
                 for o in self.dynamic_obstacles
@@ -479,6 +497,24 @@ class RoverSimulationSession:
             "new_sos": new_sos,
             "sos_count": len(self.sos_transmissions),
         }
+        self._last_frame = frame
+        return frame
+
+    def get_last_frame(self) -> Dict[str, Any]:
+        """Returns the last computed telemetry frame without advancing the
+        simulation -- what server.py streams at 20Hz while paused, so the
+        rover and dynamic obstacles both stay frozen in place.
+
+        The cached frame's own "paused"/"goal" values were captured by
+        whatever step() call produced it, which happened before the pause
+        (or a mid-pause set_goal) took effect -- patch them from live state
+        rather than serving stale copies of fields that can change while
+        step() itself isn't running.
+        """
+        frame = dict(self._last_frame) if self._last_frame is not None else self.step(dt=0.0)
+        frame["paused"] = self.paused
+        frame["goal"] = list(self.goal)
+        return frame
 
     def _sweep_perception_frustum(self) -> Optional[Dict[str, Any]]:
         """Simulated FLIR vision/thermal sweep detecting casualties within sensor range."""
@@ -524,6 +560,9 @@ class RoverSimulationSession:
         - "drop_obstacle": Drops rubble / collapsed wall, repaired incrementally via Backend 2's D* Lite.
         - "add_heat_zone": Spawns fire / chemical thermal burst, replanned via a fresh Backend 2 baseline.
         - "emergency_low_battery": Forces a conservative reroute, biasing Backend 2's real slope weight.
+        - "set_start": Teleports the rover to a new grid cell and replans from there.
+        - "set_goal": Retargets the mission goal and replans from the rover's current position.
+        - "set_paused": Toggles whether server.py's tick loop advances step() at all.
         """
         action_type = payload.get("type")
 
@@ -560,5 +599,26 @@ class RoverSimulationSession:
             self.cost_field.w_slope = 12.0
             self.cost_field.recompute_all()
             return await self._replan_via_baseline(weights={"w_slope": 12.0})
+
+        elif action_type == "set_start":
+            sx = int(np.clip(int(payload.get("x", self.start[0])), 0, self.width - 1))
+            sy = int(np.clip(int(payload.get("y", self.start[1])), 0, self.height - 1))
+            self.start = (sx, sy)
+            self.x = float(sx)
+            self.y = float(sy)
+            self.v = 0.0
+            self.omega = 0.0
+            self.current_waypoint_idx = 0
+            return await self._replan_via_baseline()
+
+        elif action_type == "set_goal":
+            gx = int(np.clip(int(payload.get("x", self.goal[0])), 0, self.width - 1))
+            gy = int(np.clip(int(payload.get("y", self.goal[1])), 0, self.height - 1))
+            self.goal = (gx, gy)
+            return await self._replan_via_baseline()
+
+        elif action_type == "set_paused":
+            self.paused = bool(payload.get("paused", False))
+            return {"status": "no_op", "reason": f"simulation {'paused' if self.paused else 'resumed'}"}
 
         return {"status": "ignored", "reason": f"unknown mutation type: {action_type!r}"}

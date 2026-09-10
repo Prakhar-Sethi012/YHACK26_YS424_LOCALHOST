@@ -133,8 +133,14 @@ async def websocket_simulation_endpoint(websocket: WebSocket):
                     "data": mutation_result
                 }, default=to_serializable))
 
-            # 2. Advance physics, kinematics, and power draw by dt
-            telemetry_frame = session.step(dt=tick_interval)
+            # 2. Advance physics, kinematics, and power draw by dt -- unless
+            # paused, in which case re-stream the last computed frame so the
+            # rover and dynamic obstacles both stay frozen in place rather
+            # than the stream going quiet.
+            if session.paused:
+                telemetry_frame = session.get_last_frame()
+            else:
+                telemetry_frame = session.step(dt=tick_interval)
 
             # 3. Stream 20 Hz telemetry frame to client
             await websocket.send_text(json.dumps({
