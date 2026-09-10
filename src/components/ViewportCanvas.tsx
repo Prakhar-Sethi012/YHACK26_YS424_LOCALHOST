@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { Check, X } from 'lucide-react';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useMissionStore } from '../store/useMissionStore';
 
@@ -50,6 +51,27 @@ function createStartMarkerMesh(): THREE.Group {
   return group;
 }
 
+// Amber and translucent, distinct from the solid green confirmed marker, so
+// there's no ambiguity about whether a teleport has actually been requested
+// yet while the confirm/cancel bar is showing.
+function createPendingStartMarkerMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.12, 3, 8),
+    new THREE.MeshStandardMaterial({ color: 0xffb020, transparent: true, opacity: 0.5 })
+  );
+  pole.position.y = 1.5;
+  group.add(pole);
+  const flag = new THREE.Mesh(
+    new THREE.ConeGeometry(0.9, 1.4, 4),
+    new THREE.MeshStandardMaterial({ color: 0xffb020, transparent: true, opacity: 0.5 })
+  );
+  flag.rotation.z = -Math.PI / 2;
+  flag.position.set(0.7, 2.7, 0);
+  group.add(flag);
+  return group;
+}
+
 function createGoalMarkerMesh(): THREE.Group {
   const group = new THREE.Group();
   const outerRing = new THREE.Mesh(
@@ -90,6 +112,15 @@ export const ViewportCanvas: React.FC = () => {
   const godModeMarkersRef = useRef<THREE.Object3D[]>([]);
   const startMarkerRef = useRef<THREE.Group | null>(null);
   const goalMarkerRef = useRef<THREE.Group | null>(null);
+  const pendingStartMarkerRef = useRef<THREE.Group | null>(null);
+
+  // Teleporting the rover is far more disruptive than the other God-Mode
+  // tools (it resets position, velocity, and waypoint progress instantly),
+  // so Set Start shows a preview + confirm/cancel bar instead of firing
+  // immediately on click.
+  const [pendingStart, setPendingStart] = useState<{ gridX: number; gridY: number; point: THREE.Vector3 } | null>(
+    null
+  );
 
   // Initialization: Scene, Cameras, Renderer
   useEffect(() => {
@@ -284,6 +315,8 @@ export const ViewportCanvas: React.FC = () => {
 
     disposeSingleMarker(scene, startMarkerRef);
     disposeSingleMarker(scene, goalMarkerRef);
+    disposeSingleMarker(scene, pendingStartMarkerRef);
+    setPendingStart(null);
 
     const { width, height, elevation, temperature, obstacles } = initialState;
     const geometry = new THREE.PlaneGeometry(width, height, width - 1, height - 1);
@@ -343,6 +376,48 @@ export const ViewportCanvas: React.FC = () => {
     placeSingleMarker(scene, startMarkerRef, createStartMarkerMesh(), startX - 50, sampleElevation(startX, startY), startY - 50);
     placeSingleMarker(scene, goalMarkerRef, createGoalMarkerMesh(), goalX - 50, sampleElevation(goalX, goalY), goalY - 50);
   }, [initialState]);
+
+  // Keep the amber preview marker in sync with pendingStart -- shows/moves it
+  // on each Set Start click, and removes it on confirm, cancel, or switching
+  // away from the tool (see the activeTool effect below).
+  useEffect(() => {
+    if (!sceneRef.current) return;
+    disposeSingleMarker(sceneRef.current, pendingStartMarkerRef);
+    if (pendingStart) {
+      placeSingleMarker(
+        sceneRef.current,
+        pendingStartMarkerRef,
+        createPendingStartMarkerMesh(),
+        pendingStart.point.x,
+        pendingStart.point.y,
+        pendingStart.point.z
+      );
+    }
+  }, [pendingStart]);
+
+  // Switching away from Set Start without confirming should drop the pending
+  // teleport rather than leaving a stale preview marker and confirm bar up.
+  useEffect(() => {
+    if (activeTool !== 'set_start') {
+      setPendingStart(null);
+    }
+  }, [activeTool]);
+
+  const confirmPendingStart = () => {
+    if (!pendingStart || !sceneRef.current) return;
+    sendSetStart(pendingStart.gridX, pendingStart.gridY);
+    placeSingleMarker(
+      sceneRef.current,
+      startMarkerRef,
+      createStartMarkerMesh(),
+      pendingStart.point.x,
+      pendingStart.point.y,
+      pendingStart.point.z
+    );
+    setPendingStart(null);
+  };
+
+  const cancelPendingStart = () => setPendingStart(null);
 
   // Subscribe directly to telemetry stream for smooth 20Hz transforms without React re-renders
   useEffect(() => {
@@ -481,9 +556,11 @@ export const ViewportCanvas: React.FC = () => {
         );
         disc.rotation.x = -Math.PI / 2;
         addGodModeMarker(disc, pt, 0.08);
-      } else if (activeTool === 'set_start' && sceneRef.current) {
-        sendSetStart(gridX, gridY);
-        placeSingleMarker(sceneRef.current, startMarkerRef, createStartMarkerMesh(), pt.x, pt.y, pt.z);
+      } else if (activeTool === 'set_start') {
+        // Doesn't send anything yet -- teleporting instantly resets position,
+        // velocity, and waypoint progress, so this needs an explicit confirm
+        // (see the confirm/cancel bar in the JSX below and confirmPendingStart).
+        setPendingStart({ gridX, gridY, point: pt.clone() });
       } else if (activeTool === 'set_goal' && sceneRef.current) {
         sendSetGoal(gridX, gridY);
         placeSingleMarker(sceneRef.current, goalMarkerRef, createGoalMarkerMesh(), pt.x, pt.y, pt.z);
@@ -512,6 +589,35 @@ export const ViewportCanvas: React.FC = () => {
           its construction above. Transparent, inherits cursor from the
           container above, and pointerdown still bubbles up to it. */}
       <div ref={orbitZoneRef} className="absolute left-0 top-0 h-full w-[65%] z-[1]" />
+
+      {pendingStart && (
+        // Stop pointerdown from bubbling to the container's onPointerDown --
+        // otherwise clicking CONFIRM/CANCEL also fires a phantom terrain
+        // raycast at wherever this bar sits on screen, silently overwriting
+        // pendingStart with the wrong coordinates before the click handler
+        // even runs (found by testing: it moved the rover to the wrong cell).
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          className="absolute bottom-28 left-[32.5%] -translate-x-1/2 z-20 flex items-center gap-3 bg-neutral-950/95 border border-amber-500/60 rounded px-4 py-2.5 font-mono text-xs text-amber-200 shadow-[0_0_20px_rgba(245,158,11,0.25)] select-none"
+        >
+          <span>
+            TELEPORT ROVER TO ({pendingStart.gridX}, {pendingStart.gridY})? Position, velocity, and route progress
+            will reset.
+          </span>
+          <button
+            onClick={confirmPendingStart}
+            className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-bold transition-colors"
+          >
+            <Check className="w-3.5 h-3.5" /> CONFIRM
+          </button>
+          <button
+            onClick={cancelPendingStart}
+            className="flex items-center gap-1 px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-[11px] transition-colors"
+          >
+            <X className="w-3.5 h-3.5" /> CANCEL
+          </button>
+        </div>
+      )}
     </div>
   );
 };
