@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, ShieldAlert, Cpu, Radio, WifiOff, FlagTriangleRight } from 'lucide-react';
+import { Activity, ShieldAlert, Cpu, Radio, WifiOff, FlagTriangleRight, PauseCircle } from 'lucide-react';
 import { useMissionStore } from '../store/useMissionStore';
 
 // Rover is considered to have arrived once it's within this many grid units
@@ -8,7 +8,7 @@ import { useMissionStore } from '../store/useMissionStore';
 const GOAL_ARRIVAL_RADIUS = 2.5;
 
 export const HUD: React.FC = () => {
-  const { wsConnected, telemetry, initialState } = useMissionStore();
+  const { wsConnected, telemetry } = useMissionStore();
 
   if (!telemetry) {
     return (
@@ -19,11 +19,12 @@ export const HUD: React.FC = () => {
     );
   }
 
-  const { pose, environment, power, benchmark, sos_count } = telemetry;
+  const { pose, environment, power, benchmark, sos_count, goal, paused } = telemetry;
 
-  const missionComplete =
-    !!initialState &&
-    Math.hypot(pose.x - initialState.goal[0], pose.y - initialState.goal[1]) < GOAL_ARRIVAL_RADIUS;
+  // goal comes from telemetry (not initialState) because set_goal can
+  // retarget it mid-mission -- initialState is only ever the mission's
+  // starting snapshot.
+  const missionComplete = Math.hypot(pose.x - goal[0], pose.y - goal[1]) < GOAL_ARRIVAL_RADIUS;
 
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-4 z-10 font-mono text-white select-none">
@@ -38,7 +39,12 @@ export const HUD: React.FC = () => {
       {/* Top Header Rail */}
       <div className="flex items-center justify-between border-b border-cyan-500/20 pb-2 bg-gradient-to-b from-black/80 to-transparent">
         <div className="flex items-center gap-3">
-          {missionComplete ? (
+          {paused ? (
+            <div className="flex items-center gap-2 px-2.5 py-1 bg-amber-950/60 border border-amber-500/40 rounded text-amber-300 text-xs tracking-wider">
+              <PauseCircle className="w-3.5 h-3.5" />
+              AEGIS-NAV C2 // SIMULATION PAUSED
+            </div>
+          ) : missionComplete ? (
             <div className="flex items-center gap-2 px-2.5 py-1 bg-emerald-950/60 border border-emerald-500/40 rounded text-emerald-300 text-xs tracking-wider">
               <FlagTriangleRight className="w-3.5 h-3.5" />
               AEGIS-NAV C2 // TARGET REACHED

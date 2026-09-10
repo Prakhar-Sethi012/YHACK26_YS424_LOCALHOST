@@ -73,6 +73,8 @@ export interface TelemetryData {
   };
   path: Path3DPoint[];
   waypoint_index: number;
+  goal: [number, number]; // live -- set_goal can retarget this mid-mission
+  paused: boolean;
   dynamic_obstacles: DynamicObstacle[];
   benchmark: {
     astar: BenchmarkMetrics;
@@ -88,4 +90,4 @@ export type MutationAck =
   | { status: 'replan_failed'; error: string }
   | { status: 'ignored'; reason: string };
 
-export type ActiveTool = 'select' | 'drop_obstacle' | 'add_heat_zone';
+export type ActiveTool = 'select' | 'drop_obstacle' | 'add_heat_zone' | 'set_start' | 'set_goal';

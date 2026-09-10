@@ -3,12 +3,78 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useMissionStore } from '../store/useMissionStore';
 
+// Start/goal are single, replaceable markers (unlike God-Mode obstacle/heat
+// markers, which accumulate) -- these helpers dispose whatever's currently
+// in the ref before swapping in the new one.
+function disposeSingleMarker(scene: THREE.Scene, ref: React.MutableRefObject<THREE.Group | null>) {
+  if (!ref.current) return;
+  scene.remove(ref.current);
+  ref.current.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.geometry.dispose();
+      (child.material as THREE.Material).dispose();
+    }
+  });
+  ref.current = null;
+}
+
+function placeSingleMarker(
+  scene: THREE.Scene,
+  ref: React.MutableRefObject<THREE.Group | null>,
+  group: THREE.Group,
+  worldX: number,
+  worldY: number,
+  worldZ: number
+) {
+  disposeSingleMarker(scene, ref);
+  group.position.set(worldX, worldY, worldZ);
+  scene.add(group);
+  ref.current = group;
+}
+
+function createStartMarkerMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.12, 3, 8),
+    new THREE.MeshStandardMaterial({ color: 0x39ff88 })
+  );
+  pole.position.y = 1.5;
+  group.add(pole);
+  const flag = new THREE.Mesh(
+    new THREE.ConeGeometry(0.9, 1.4, 4),
+    new THREE.MeshStandardMaterial({ color: 0x39ff88, emissive: 0x0a3d1f })
+  );
+  flag.rotation.z = -Math.PI / 2;
+  flag.position.set(0.7, 2.7, 0);
+  group.add(flag);
+  return group;
+}
+
+function createGoalMarkerMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const outerRing = new THREE.Mesh(
+    new THREE.TorusGeometry(2.2, 0.15, 8, 32),
+    new THREE.MeshBasicMaterial({ color: 0x00e5ff })
+  );
+  outerRing.rotation.x = -Math.PI / 2;
+  outerRing.position.y = 0.1;
+  group.add(outerRing);
+  const innerRing = new THREE.Mesh(
+    new THREE.TorusGeometry(1.1, 0.12, 8, 32),
+    new THREE.MeshBasicMaterial({ color: 0x00e5ff })
+  );
+  innerRing.rotation.x = -Math.PI / 2;
+  innerRing.position.y = 0.12;
+  group.add(innerRing);
+  return group;
+}
+
 export const ViewportCanvas: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   // OrbitControls needs its own element to listen on, scoped to exactly
   // Viewport A -- see the note above the OrbitControls construction below.
   const orbitZoneRef = useRef<HTMLDivElement>(null);
-  const { initialState, activeTool, sendDropObstacle, sendAddHeatZone } = useMissionStore();
+  const { initialState, activeTool, sendDropObstacle, sendAddHeatZone, sendSetStart, sendSetGoal } = useMissionStore();
 
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -22,6 +88,8 @@ export const ViewportCanvas: React.FC = () => {
   const dynamicObstacleMeshesRef = useRef<Map<number, THREE.Mesh>>(new Map());
   const victimMarkersRef = useRef<Map<string, THREE.Group>>(new Map());
   const godModeMarkersRef = useRef<THREE.Object3D[]>([]);
+  const startMarkerRef = useRef<THREE.Group | null>(null);
+  const goalMarkerRef = useRef<THREE.Group | null>(null);
 
   // Initialization: Scene, Cameras, Renderer
   useEffect(() => {
@@ -214,6 +282,9 @@ export const ViewportCanvas: React.FC = () => {
       pathLineRef.current = null;
     }
 
+    disposeSingleMarker(scene, startMarkerRef);
+    disposeSingleMarker(scene, goalMarkerRef);
+
     const { width, height, elevation, temperature, obstacles } = initialState;
     const geometry = new THREE.PlaneGeometry(width, height, width - 1, height - 1);
     geometry.rotateX(-Math.PI / 2);
@@ -262,6 +333,15 @@ export const ViewportCanvas: React.FC = () => {
     terrainMesh.receiveShadow = true;
     scene.add(terrainMesh);
     terrainMeshRef.current = terrainMesh;
+
+    // Show the server's own start/goal immediately, before any manual
+    // Set Start/Set Goal click -- gives the operator a reference point for
+    // where the mission currently begins/ends.
+    const sampleElevation = (gx: number, gy: number) => elevation[gy]?.[gx] ?? 0;
+    const [startX, startY] = initialState.start;
+    const [goalX, goalY] = initialState.goal;
+    placeSingleMarker(scene, startMarkerRef, createStartMarkerMesh(), startX - 50, sampleElevation(startX, startY), startY - 50);
+    placeSingleMarker(scene, goalMarkerRef, createGoalMarkerMesh(), goalX - 50, sampleElevation(goalX, goalY), goalY - 50);
   }, [initialState]);
 
   // Subscribe directly to telemetry stream for smooth 20Hz transforms without React re-renders
@@ -401,6 +481,12 @@ export const ViewportCanvas: React.FC = () => {
         );
         disc.rotation.x = -Math.PI / 2;
         addGodModeMarker(disc, pt, 0.08);
+      } else if (activeTool === 'set_start' && sceneRef.current) {
+        sendSetStart(gridX, gridY);
+        placeSingleMarker(sceneRef.current, startMarkerRef, createStartMarkerMesh(), pt.x, pt.y, pt.z);
+      } else if (activeTool === 'set_goal' && sceneRef.current) {
+        sendSetGoal(gridX, gridY);
+        placeSingleMarker(sceneRef.current, goalMarkerRef, createGoalMarkerMesh(), pt.x, pt.y, pt.z);
       }
     }
   };

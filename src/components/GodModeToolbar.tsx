@@ -1,10 +1,11 @@
 import React from 'react';
-import { MousePointer, Box, Flame, BatteryWarning } from 'lucide-react';
+import { MousePointer, Box, Flame, BatteryWarning, Flag, Target, Play, Pause } from 'lucide-react';
 import { useMissionStore } from '../store/useMissionStore';
 import { ActiveTool } from '../types/mission';
 
 export const GodModeToolbar: React.FC = () => {
-  const { activeTool, setActiveTool, sendEmergencyLowBattery } = useMissionStore();
+  const { activeTool, setActiveTool, sendEmergencyLowBattery, sendSetPaused, telemetry } = useMissionStore();
+  const isPaused = telemetry?.paused ?? false;
 
   const toolClasses = (tool: ActiveTool) =>
     `flex items-center gap-2 px-3 py-1.5 rounded text-xs font-mono transition-colors border ${
@@ -31,7 +32,27 @@ export const GodModeToolbar: React.FC = () => {
         <Flame className="w-3.5 h-3.5 text-amber-400" /> Paint Thermal Zone
       </button>
 
+      <button onClick={() => setActiveTool('set_start')} className={toolClasses('set_start')}>
+        <Flag className="w-3.5 h-3.5 text-emerald-400" /> Set Start Point
+      </button>
+
+      <button onClick={() => setActiveTool('set_goal')} className={toolClasses('set_goal')}>
+        <Target className="w-3.5 h-3.5 text-cyan-400" /> Set Goal Point
+      </button>
+
       <div className="my-1 border-t border-neutral-800" />
+
+      <button
+        onClick={() => sendSetPaused(!isPaused)}
+        className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs font-mono transition-colors border ${
+          isPaused
+            ? 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
+            : 'bg-neutral-900/80 border-neutral-700/60 text-neutral-300 hover:text-white hover:bg-neutral-800'
+        }`}
+      >
+        {isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+        {isPaused ? 'Resume Simulation' : 'Pause Simulation'}
+      </button>
 
       <button
         onClick={() => sendEmergencyLowBattery()}

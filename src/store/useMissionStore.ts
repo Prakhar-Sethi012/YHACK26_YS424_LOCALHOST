@@ -21,6 +21,9 @@ interface MissionStore {
   sendDropObstacle: (x: number, y: number, radius?: number) => void;
   sendAddHeatZone: (x: number, y: number, temp?: number, sigma?: number) => void;
   sendEmergencyLowBattery: () => void;
+  sendSetStart: (x: number, y: number) => void;
+  sendSetGoal: (x: number, y: number) => void;
+  sendSetPaused: (paused: boolean) => void;
 }
 
 let socketRef: WebSocket | null = null;
@@ -84,6 +87,24 @@ export const useMissionStore = create<MissionStore>((set) => ({
   sendEmergencyLowBattery: () => {
     if (socketRef && socketRef.readyState === WebSocket.OPEN) {
       socketRef.send(JSON.stringify({ type: 'emergency_low_battery' }));
+    }
+  },
+
+  sendSetStart: (x, y) => {
+    if (socketRef && socketRef.readyState === WebSocket.OPEN) {
+      socketRef.send(JSON.stringify({ type: 'set_start', x: Math.round(x), y: Math.round(y) }));
+    }
+  },
+
+  sendSetGoal: (x, y) => {
+    if (socketRef && socketRef.readyState === WebSocket.OPEN) {
+      socketRef.send(JSON.stringify({ type: 'set_goal', x: Math.round(x), y: Math.round(y) }));
+    }
+  },
+
+  sendSetPaused: (paused) => {
+    if (socketRef && socketRef.readyState === WebSocket.OPEN) {
+      socketRef.send(JSON.stringify({ type: 'set_paused', paused }));
     }
   },
 }));
