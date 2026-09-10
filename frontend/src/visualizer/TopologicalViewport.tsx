@@ -1,62 +1,162 @@
-import { useMemo } from 'react';
-import { OrbitControls, Grid, Line } from '@react-three/drei';
-import * as THREE from 'three';
-import RoverModel from './RoverModel';
-import type { Telemetry } from '../store/useSimulationStore';
+import { Suspense, useMemo } from 'react';
+import { OrbitControls, Environment, Stars } from '@react-three/drei';
+import TerrainMesh from './TerrainMesh';
+import PathVisualizer from './PathVisualizer';
+import type { Telemetry, DynamicObstacle, VictimData } from '../store/useSimulationStore';
 
 interface Props {
   telemetry: Telemetry | null;
   path3d: [number, number, number][];
+  elevationData: number[][] | null;
+  temperatureData: number[][] | null;
+  obstacleData: boolean[][] | null;
+  victims: VictimData[];
+  dynamicObstacles: DynamicObstacle[];
+  onTerrainClick?: (gridX: number, gridY: number) => void;
 }
 
-export default function TopologicalViewport({ telemetry, path3d }: Props) {
-  const linePoints = useMemo(() => {
-    if (!path3d || !Array.isArray(path3d) || path3d.length === 0) return [];
-    // Scale down coordinates slightly if the map is 100x100 so it fits nicely
-    return path3d.map(p => new THREE.Vector3(p[0] - 50, p[2], p[1] - 50)); 
-  }, [path3d]);
+const HEIGHT_SCALE = 0.35;
+
+function DynamicDebris({ obs }: { obs: DynamicObstacle }) {
+  const pos: [number, number, number] = [obs.x - 50, 0.4, obs.y - 50];
+  return (
+    <mesh position={pos} castShadow>
+      <boxGeometry args={[obs.radius * 2, 0.8, obs.radius * 2]} />
+      <meshStandardMaterial color="#555" roughness={0.8} />
+    </mesh>
+  );
+}
+
+function VictimMarker({ victim }: { victim: VictimData }) {
+  const pos: [number, number, number] = [victim.x - 50, 1, victim.y - 50];
+  return (
+    <group position={pos}>
+      {/* Glowing FLIR thermal blob */}
+      <mesh>
+        <sphereGeometry args={[0.3, 12, 12]} />
+        <meshStandardMaterial
+          color="#ff6600"
+          emissive="#ff3300"
+          emissiveIntensity={3}
+          transparent
+          opacity={0.85}
+        />
+      </mesh>
+      <pointLight color="#ff6600" intensity={2} distance={5} />
+      {/* SOS ring */}
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.6, 0.06, 8, 24]} />
+        <meshStandardMaterial color="#ffff00" emissive="#eeee00" emissiveIntensity={2} />
+      </mesh>
+    </group>
+  );
+}
+
+function ThermalHeatZone({ temperatureData }: { temperatureData: number[][] }) {
+  const heatLights = useMemo(() => {
+    const lights: { x: number; z: number; intensity: number }[] = [];
+    const rows = temperatureData.length;
+    const cols = temperatureData[0]?.length ?? 0;
+    // Sample every 5 cells
+    for (let r = 0; r < rows; r += 5) {
+      for (let c = 0; c < cols; c += 5) {
+        const t = temperatureData[r]?.[c] ?? 24;
+        if (t > 60) {
+          lights.push({ x: c - 50, z: r - 50, intensity: Math.min(3, (t - 60) / 20) });
+        }
+      }
+    }
+    return lights.slice(0, 20); // cap at 20 lights for perf
+  }, [temperatureData]);
 
   return (
     <>
+      {heatLights.map((l, i) => (
+        <pointLight key={i} position={[l.x, 1.5, l.z]} color="#ff4400" intensity={l.intensity} distance={8} />
+      ))}
+    </>
+  );
+}
+
+export default function TopologicalViewport({
+  telemetry, path3d, elevationData, temperatureData, obstacleData, victims, dynamicObstacles, onTerrainClick
+}: Props) {
+  const roverPos: [number, number, number] = telemetry
+    ? [telemetry.x - 50, telemetry.z * HEIGHT_SCALE + 0.4, telemetry.y - 50]
+    : [0, 0.4, 0];
+
+  return (
+    <>
+      {/* Atmosphere */}
+      <fog attach="fog" args={['#0a0a12', 60, 180]} />
+      <color attach="background" args={['#050508']} />
+
       {/* Lighting */}
-      <ambientLight intensity={0.2} />
-      <directionalLight position={[10, 20, 10]} intensity={1.5} castShadow />
+      <ambientLight intensity={0.3} color="#4488aa" />
+      <directionalLight
+        position={[20, 40, 10]}
+        intensity={1.2}
+        color="#ffeedd"
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-far={200}
+        shadow-camera-left={-60}
+        shadow-camera-right={60}
+        shadow-camera-top={60}
+        shadow-camera-bottom={-60}
+      />
+      {/* Rim light from behind */}
+      <directionalLight position={[-20, 10, -30]} intensity={0.4} color="#2244aa" />
+
+      {/* Stars */}
+      <Stars radius={120} depth={50} count={3000} factor={3} fade speed={0.5} />
+
+      <Suspense fallback={null}>
+        <Environment preset="night" />
+      </Suspense>
 
       {/* Camera Controls */}
-      <OrbitControls 
-        makeDefault 
-        minPolarAngle={0} 
-        maxPolarAngle={Math.PI / 2.1} 
-        minDistance={10}
-        maxDistance={150}
+      <OrbitControls
+        makeDefault
+        minPolarAngle={0.1}
+        maxPolarAngle={Math.PI / 2.05}
+        minDistance={8}
+        maxDistance={140}
+        target={[0, 0, 0]}
       />
 
-      {/* Environment Grid - representing the 100x100 coordinate space centered */}
-      <Grid 
-        args={[100, 100]} 
-        position={[0, -0.1, 0]} 
-        cellColor="#333" 
-        sectionColor="#666" 
-        fadeDistance={100}
-        fadeStrength={1.5}
-      />
-
-      {/* Planned Path Line */}
-      {linePoints.length > 1 && (
-        <Line
-          points={linePoints}
-          color="#10b981"
-          lineWidth={3}
-          dashed={false}
-        />
+      {/* Terrain Heightmap */}
+      {elevationData && temperatureData && obstacleData && (
+        <group>
+          <TerrainMesh
+            elevationData={elevationData}
+            temperatureData={temperatureData}
+            obstacleData={obstacleData}
+            onTerrainClick={onTerrainClick}
+            heightScale={HEIGHT_SCALE}
+          />
+          <ThermalHeatZone temperatureData={temperatureData} />
+        </group>
       )}
 
-      {/* Rover */}
-      {telemetry && telemetry.x !== undefined && (
-        <RoverModel 
-          position={[telemetry.x - 50, telemetry.z, telemetry.y - 50]} 
-          rotation={[telemetry.pitch, telemetry.yaw, telemetry.roll]}
-        />
+      {/* Planned Path */}
+      <PathVisualizer path3d={path3d} heightScale={HEIGHT_SCALE} />
+
+      {/* Dynamic obstacles (moving debris) */}
+      {dynamicObstacles.map((obs, i) => <DynamicDebris key={i} obs={obs} />)}
+
+      {/* Victim markers */}
+      {victims.map((v) => <VictimMarker key={v.id} victim={v} />)}
+
+      {/* Rover (small indicator in orbital view) */}
+      {telemetry && (
+        <group position={roverPos}>
+          <mesh>
+            <boxGeometry args={[0.8, 0.5, 1.6]} />
+            <meshStandardMaterial color="#E07020" emissive="#601000" emissiveIntensity={0.3} />
+          </mesh>
+          <pointLight color="#ffffff" intensity={1.5} distance={8} />
+        </group>
       )}
     </>
   );

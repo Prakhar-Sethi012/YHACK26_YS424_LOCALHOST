@@ -1,36 +1,58 @@
-import { useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
+import { useSimulationStore } from '../store/useSimulationStore';
 import TopologicalViewport from './TopologicalViewport';
 import ChaseCamViewport from './ChaseCamViewport';
-import { useSimulationStore } from '../store/useSimulationStore';
 
 export default function SceneManager() {
-  const container = useRef<HTMLDivElement>(null!);
-
-  // We need to pass the state so it's available in the 3D tree
   const telemetry = useSimulationStore(s => s.telemetry);
   const path3d = useSimulationStore(s => s.path3d);
+  const elevationData = useSimulationStore(s => s.elevationData);
+  const temperatureData = useSimulationStore(s => s.temperatureData);
+  const obstacleData = useSimulationStore(s => s.obstacleData);
+  const victims = useSimulationStore(s => s.victims);
+  const dynamicObstacles = useSimulationStore(s => s.dynamicObstacles);
+  const applyGodModeAt = useSimulationStore(s => s.applyGodModeAt);
+  const godModeTool = useSimulationStore(s => s.godModeTool);
+
+  const commonProps = { telemetry, path3d, elevationData, temperatureData, obstacleData, victims, dynamicObstacles };
 
   return (
-    <div ref={container} className="w-full h-full flex flex-col md:flex-row bg-neutral-900">
-      
-      {/* Viewport 1 */}
-      <div className="flex-1 border-r border-neutral-800 relative">
-        <div className="absolute top-4 left-4 z-10 bg-black/50 text-neutral-400 px-2 py-1 text-xs border border-neutral-800 backdrop-blur-md rounded">
-          ORBITAL HEIGHTMAP (TACTICAL)
+    <div className="w-full h-full flex flex-col md:flex-row">
+
+      {/* LEFT: Tactical orbital map */}
+      <div className="flex-1 relative border-r border-neutral-800" style={{ minHeight: 0 }}>
+        <div className="absolute top-3 left-3 z-10 px-2 py-1 text-[10px] font-mono text-neutral-400 bg-black/50 border border-neutral-700 backdrop-blur-sm rounded uppercase tracking-widest">
+          ORBITAL HEIGHTMAP / TACTICAL
         </div>
-        <Canvas>
-          <TopologicalViewport telemetry={telemetry} path3d={path3d} />
+        {godModeTool && (
+          <div className="absolute top-3 right-3 z-10 px-2 py-1 text-[10px] font-mono text-yellow-400 bg-yellow-900/30 border border-yellow-700/50 backdrop-blur-sm rounded uppercase tracking-widest animate-pulse">
+            CLICK MAP TO PLACE
+          </div>
+        )}
+        <Canvas
+          shadows
+          gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
+          camera={{ position: [0, 55, 60], fov: 45 }}
+          style={{ background: '#050508' }}
+        >
+          <TopologicalViewport
+            {...commonProps}
+            onTerrainClick={godModeTool ? applyGodModeAt : undefined}
+          />
         </Canvas>
       </div>
-      
-      {/* Viewport 2 */}
-      <div className="flex-1 relative">
-        <div className="absolute top-4 left-4 z-10 bg-black/50 text-neutral-400 px-2 py-1 text-xs border border-neutral-800 backdrop-blur-md rounded">
-          CHASE CAM (TPP)
+
+      {/* RIGHT: Chase camera TPP view */}
+      <div className="flex-1 relative" style={{ minHeight: 0 }}>
+        <div className="absolute top-3 left-3 z-10 px-2 py-1 text-[10px] font-mono text-neutral-400 bg-black/50 border border-neutral-700 backdrop-blur-sm rounded uppercase tracking-widest">
+          CHASE CAM / TPP
         </div>
-        <Canvas>
-          <ChaseCamViewport telemetry={telemetry} path3d={path3d} />
+        <Canvas
+          shadows
+          gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
+          style={{ background: '#050508' }}
+        >
+          <ChaseCamViewport {...commonProps} />
         </Canvas>
       </div>
 
