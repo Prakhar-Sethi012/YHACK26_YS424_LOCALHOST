@@ -3,6 +3,7 @@ import { PerspectiveCamera, Environment, Stars } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import TerrainMesh from './TerrainMesh';
+import InstancedObstacles from './InstancedObstacles';
 import PathVisualizer from './PathVisualizer';
 import RoverModel from './RoverModel';
 import type { Telemetry, DynamicObstacle, VictimData } from '../store/useSimulationStore';
@@ -82,14 +83,21 @@ export default function ChaseCamViewport({
         <Environment preset="night" />
       </Suspense>
 
-      {/* Terrain */}
+      {/* Terrain & Physical Obstacles */}
       {elevationData && temperatureData && obstacleData && (
-        <TerrainMesh
-          elevationData={elevationData}
-          temperatureData={temperatureData}
-          obstacleData={obstacleData}
-          heightScale={HEIGHT_SCALE}
-        />
+        <group>
+          <TerrainMesh
+            elevationData={elevationData}
+            temperatureData={temperatureData}
+            obstacleData={obstacleData}
+            heightScale={HEIGHT_SCALE}
+          />
+          <InstancedObstacles
+            obstacleData={obstacleData}
+            elevationData={elevationData}
+            heightScale={HEIGHT_SCALE}
+          />
+        </group>
       )}
 
       {/* Path */}

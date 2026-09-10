@@ -1,6 +1,7 @@
 import { Suspense, useMemo } from 'react';
 import { OrbitControls, Environment, Stars } from '@react-three/drei';
 import TerrainMesh from './TerrainMesh';
+import InstancedObstacles from './InstancedObstacles';
 import PathVisualizer from './PathVisualizer';
 import type { Telemetry, DynamicObstacle, VictimData } from '../store/useSimulationStore';
 
@@ -133,6 +134,11 @@ export default function TopologicalViewport({
             temperatureData={temperatureData}
             obstacleData={obstacleData}
             onTerrainClick={onTerrainClick}
+            heightScale={HEIGHT_SCALE}
+          />
+          <InstancedObstacles
+            obstacleData={obstacleData}
+            elevationData={elevationData}
             heightScale={HEIGHT_SCALE}
           />
           <ThermalHeatZone temperatureData={temperatureData} />

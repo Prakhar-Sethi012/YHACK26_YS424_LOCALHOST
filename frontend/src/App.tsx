@@ -3,6 +3,7 @@ import HeaderBar from './components/HeaderBar';
 import GodModeSculptor from './components/GodModeSculptor';
 import BenchmarkTable from './components/BenchmarkTable';
 import LiveTelemetry from './components/LiveTelemetry';
+import SosAlertModal from './components/SosAlertModal';
 
 function App() {
   return (
@@ -38,6 +39,9 @@ function App() {
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none">
           <div className="w-px h-full bg-neutral-800 absolute left-0 top-0" style={{ height: '100vh', transform: 'translateY(-50vh)' }} />
         </div>
+
+        {/* Tactical SOS Alert Modal */}
+        <SosAlertModal />
       </div>
     </div>
   );

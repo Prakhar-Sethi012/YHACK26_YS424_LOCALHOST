@@ -44,6 +44,17 @@ export interface BenchmarkStats {
   replan_count: number;
 }
 
+export interface SosAlert {
+  transmission_id: string;
+  victim_id: string;
+  timestamp_utc: string;
+  target_coordinates: { x: number; y: number; elevation: number };
+  triage_status: string;
+  vital_thermal_signature: string;
+  ambient_temperature: string;
+  extraction_corridor: string;
+}
+
 export type GodModeTool = 'wall' | 'fire' | 'landslide' | 'clear' | null;
 
 interface SimulationState {
@@ -60,12 +71,15 @@ interface SimulationState {
   benchmarkStats: BenchmarkStats | null;
   godModeTool: GodModeTool;
   lastMutationAck: string | null;
+  latestSosAlert: SosAlert | null;
+  sosCount: number;
 
   connect: () => void;
   disconnect: () => void;
   setGodModeTool: (tool: GodModeTool) => void;
   applyGodModeAt: (gridX: number, gridY: number) => void;
   sendGodModeCommand: (payload: any) => void;
+  dismissSosAlert: () => void;
 }
 
 let _ws: WebSocket | null = null;
@@ -84,6 +98,8 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   benchmarkStats: null,
   godModeTool: null,
   lastMutationAck: null,
+  latestSosAlert: null,
+  sosCount: 0,
 
   connect: () => {
     if (_ws) return;
@@ -151,6 +167,8 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
           },
           path3d: data.path ?? s.path3d,
           dynamicObstacles: data.dynamic_obstacles ?? [],
+          latestSosAlert: data.new_sos ? data.new_sos : s.latestSosAlert,
+          sosCount: data.sos_count ?? s.sosCount,
         }));
       } else if (msg.type === 'mutation_ack') {
         const d = data;
@@ -220,4 +238,6 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       _ws.send(JSON.stringify(payload));
     }
   },
+
+  dismissSosAlert: () => set({ latestSosAlert: null }),
 }));
