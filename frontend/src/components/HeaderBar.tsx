@@ -32,7 +32,7 @@ export default function HeaderBar() {
         )}
       </div>
 
-      {telemetry ? (
+      {telemetry && telemetry.velocity !== undefined ? (
         <div className="flex items-center space-x-8">
           <TelemetryMetric 
             label="VELOCITY" 

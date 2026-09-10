@@ -49,22 +49,48 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
       };
       
       ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.type === 'initial_state') {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'initial_state') {
+          const data = msg.data || {};
+          const start = data.start || [0, 0];
           set({ 
-            path3d: data.path,
+            path3d: data.initial_path || [],
             telemetry: {
-              ...data.telemetry,
-              status: 'INITIALIZED'
+              status: 'INITIALIZED',
+              x: start[0],
+              y: start[1],
+              z: 0,
+              pitch: 0,
+              roll: 0,
+              yaw: 0,
+              velocity: 0,
+              battery_pct: 100,
+              battery_wh: 100,
+              fuel_liters: 0,
+              distance_traveled_m: 0,
+              is_critical_reserve: false
             }
           });
-        } else if (data.type === 'telemetry') {
+        } else if (msg.type === 'telemetry') {
+          const t = msg.data;
+          if (!t || !t.pose) return;
           set({ 
             telemetry: {
-              ...data.telemetry,
-              status: 'ACTIVE'
+              status: 'ACTIVE',
+              x: t.pose.x,
+              y: t.pose.y,
+              z: t.environment ? t.environment.elevation : 0,
+              pitch: t.environment ? t.environment.slope_deg * (Math.PI/180) : 0,
+              roll: 0,
+              yaw: t.pose.heading_rad,
+              velocity: t.pose.velocity,
+              battery_pct: t.power ? t.power.battery_pct : 100,
+              battery_wh: t.power ? t.power.battery_wh : 0,
+              fuel_liters: t.power ? t.power.fuel_liters : 0,
+              distance_traveled_m: 0,
+              is_critical_reserve: t.power ? t.power.is_critical_reserve : false
             },
-            path3d: data.path 
+            path3d: t.path || []
           });
         }
       };
@@ -78,8 +104,6 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
     },
 
     addHazard: (x: number, y: number, temp: number) => {
-      // In a real app we'd send a command over WS or REST
-      // For now, just track locally to render
       set((state) => ({ hazards: [...state.hazards, { x, y, temp }] }));
     },
 

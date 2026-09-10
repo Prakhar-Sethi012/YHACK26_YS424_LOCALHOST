@@ -14,7 +14,7 @@ export default function ChaseCamViewport({ telemetry, path3d }: Props) {
   const cameraRef = useRef<THREE.PerspectiveCamera>(null);
 
   useFrame(() => {
-    if (!cameraRef.current || !telemetry) return;
+    if (!cameraRef.current || !telemetry || telemetry.x === undefined) return;
 
     // The rover's world position
     const targetX = telemetry.x - 50;
@@ -42,7 +42,7 @@ export default function ChaseCamViewport({ telemetry, path3d }: Props) {
   });
 
   const linePoints = useMemo(() => {
-    if (!path3d || path3d.length === 0) return [];
+    if (!path3d || !Array.isArray(path3d) || path3d.length === 0) return [];
     return path3d.map(p => new THREE.Vector3(p[0] - 50, p[2], p[1] - 50)); 
   }, [path3d]);
 
@@ -73,7 +73,7 @@ export default function ChaseCamViewport({ telemetry, path3d }: Props) {
       )}
 
       {/* Rover */}
-      {telemetry && (
+      {telemetry && telemetry.x !== undefined && (
         <RoverModel 
           position={[telemetry.x - 50, telemetry.z, telemetry.y - 50]} 
           rotation={[telemetry.pitch, telemetry.yaw, telemetry.roll]}
