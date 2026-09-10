@@ -359,7 +359,9 @@ export const ViewportCanvas: React.FC = () => {
     <div
       ref={containerRef}
       onPointerDown={handlePointerDown}
-      className="relative w-full h-full cursor-crosshair overflow-hidden select-none"
+      className={`relative w-full h-full overflow-hidden select-none ${
+        activeTool === 'select' ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'
+      }`}
     />
   );
 };

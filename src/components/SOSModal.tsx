@@ -44,12 +44,18 @@ export const SOSModal: React.FC = () => {
             <span className="text-[10px] text-emerald-300 font-bold">TARGET LOCKED</span>
           </div>
           <div className="absolute bottom-2 left-2 text-[10px] text-emerald-400">FLIR_SPECTRAL_ID: 8-14um</div>
-          <div className="absolute bottom-2 right-2 text-[10px] text-amber-300 font-bold">
+          <div className="absolute bottom-2 right-2 text-[10px] text-amber-300 font-bold text-right">
             SIGNATURE: {activeSOSModal.vital_thermal_signature}
+            <br />
+            AMBIENT: {activeSOSModal.ambient_temperature}
           </div>
         </div>
 
         <div className="space-y-1.5 text-xs text-neutral-300 mb-5">
+          <div className="flex justify-between border-b border-neutral-800/80 py-1">
+            <span className="text-neutral-400">VICTIM ID:</span>
+            <span className="text-white font-bold">{activeSOSModal.victim_id}</span>
+          </div>
           <div className="flex justify-between border-b border-neutral-800/80 py-1">
             <span className="text-neutral-400">TRANSMISSION ID:</span>
             <span className="text-white font-bold">{activeSOSModal.transmission_id}</span>
