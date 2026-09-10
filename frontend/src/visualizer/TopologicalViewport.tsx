@@ -1,8 +1,11 @@
 import { Suspense, useMemo } from 'react';
 import { OrbitControls, Environment, Stars } from '@react-three/drei';
 import TerrainMesh from './TerrainMesh';
+import GlbTerrain from './GlbTerrain';
 import InstancedObstacles from './InstancedObstacles';
 import PathVisualizer from './PathVisualizer';
+import RoverModel from './RoverModel';
+import { useSimulationStore } from '../store/useSimulationStore';
 import type { Telemetry, DynamicObstacle, VictimData } from '../store/useSimulationStore';
 
 interface Props {
@@ -82,6 +85,8 @@ function ThermalHeatZone({ temperatureData }: { temperatureData: number[][] }) {
 export default function TopologicalViewport({
   telemetry, path3d, elevationData, temperatureData, obstacleData, victims, dynamicObstacles, onTerrainClick
 }: Props) {
+  const terrainVisual = useSimulationStore((s) => s.terrainVisual);
+
   const roverPos: [number, number, number] = telemetry
     ? [telemetry.x - 50, telemetry.z * HEIGHT_SCALE + 0.4, telemetry.y - 50]
     : [0, 0.4, 0];
@@ -126,23 +131,38 @@ export default function TopologicalViewport({
         target={[0, 0, 0]}
       />
 
-      {/* Terrain Heightmap */}
-      {elevationData && temperatureData && obstacleData && (
+      {/* Terrain */}
+      {terrainVisual === 'glb_mesh' ? (
         <group>
-          <TerrainMesh
-            elevationData={elevationData}
-            temperatureData={temperatureData}
-            obstacleData={obstacleData}
-            onTerrainClick={onTerrainClick}
-            heightScale={HEIGHT_SCALE}
-          />
-          <InstancedObstacles
-            obstacleData={obstacleData}
-            elevationData={elevationData}
-            heightScale={HEIGHT_SCALE}
-          />
-          <ThermalHeatZone temperatureData={temperatureData} />
+          <Suspense fallback={null}>
+            <GlbTerrain onTerrainClick={onTerrainClick} />
+          </Suspense>
+          {obstacleData && elevationData && (
+            <InstancedObstacles
+              obstacleData={obstacleData}
+              elevationData={elevationData}
+              heightScale={HEIGHT_SCALE}
+            />
+          )}
         </group>
+      ) : (
+        elevationData && temperatureData && obstacleData && (
+          <group>
+            <TerrainMesh
+              elevationData={elevationData}
+              temperatureData={temperatureData}
+              obstacleData={obstacleData}
+              onTerrainClick={onTerrainClick}
+              heightScale={HEIGHT_SCALE}
+            />
+            <InstancedObstacles
+              obstacleData={obstacleData}
+              elevationData={elevationData}
+              heightScale={HEIGHT_SCALE}
+            />
+            <ThermalHeatZone temperatureData={temperatureData} />
+          </group>
+        )
       )}
 
       {/* Planned Path */}
@@ -154,15 +174,13 @@ export default function TopologicalViewport({
       {/* Victim markers */}
       {victims.map((v) => <VictimMarker key={v.id} victim={v} />)}
 
-      {/* Rover (small indicator in orbital view) */}
+      {/* Rover */}
       {telemetry && (
-        <group position={roverPos}>
-          <mesh>
-            <boxGeometry args={[0.8, 0.5, 1.6]} />
-            <meshStandardMaterial color="#E07020" emissive="#601000" emissiveIntensity={0.3} />
-          </mesh>
-          <pointLight color="#ffffff" intensity={1.5} distance={8} />
-        </group>
+        <RoverModel
+          position={roverPos}
+          headingRad={telemetry.heading_rad}
+          slopeDeg={telemetry.slope_deg}
+        />
       )}
     </>
   );

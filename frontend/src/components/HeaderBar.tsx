@@ -1,10 +1,19 @@
 import { useEffect } from 'react';
 import { useSimulationStore } from '../store/useSimulationStore';
-import { Radio, AlertTriangle, Cpu } from 'lucide-react';
+import { Radio, AlertTriangle, Cpu, Layers, Box } from 'lucide-react';
 import clsx from 'clsx';
 
 export default function HeaderBar() {
-  const { connected, telemetry, connect, disconnect } = useSimulationStore();
+  const {
+    connected,
+    telemetry,
+    connect,
+    disconnect,
+    terrainVisual,
+    roverVisual,
+    setTerrainVisual,
+    setRoverVisual
+  } = useSimulationStore();
 
   useEffect(() => {
     connect();
@@ -66,14 +75,72 @@ export default function HeaderBar() {
         </div>
       )}
 
-      {/* Right: System status */}
-      <div className="flex items-center space-x-3 text-xs text-neutral-500">
-        <div className="flex items-center space-x-1">
+      {/* Right: Model toggles & System status */}
+      <div className="flex items-center space-x-3 text-xs text-neutral-400">
+        {/* Terrain Visual Toggle */}
+        <div className="flex items-center bg-neutral-900 border border-neutral-800 rounded p-0.5 text-[10px]">
+          <button
+            onClick={() => setTerrainVisual('digital_twin')}
+            className={clsx(
+              "px-2 py-0.5 rounded transition-all flex items-center gap-1",
+              terrainVisual === 'digital_twin'
+                ? "bg-orange-600 text-white font-bold"
+                : "text-neutral-500 hover:text-neutral-300"
+            )}
+            title="Dynamic sensor heightmap + PBR slope shading + 3D instanced obstacles"
+          >
+            <Layers size={10} />
+            <span>SMART TWIN</span>
+          </button>
+          <button
+            onClick={() => setTerrainVisual('glb_mesh')}
+            className={clsx(
+              "px-2 py-0.5 rounded transition-all flex items-center gap-1",
+              terrainVisual === 'glb_mesh'
+                ? "bg-orange-600 text-white font-bold"
+                : "text-neutral-500 hover:text-neutral-300"
+            )}
+            title="Render custom hilly_terrain.glb 3D mesh"
+          >
+            <Box size={10} />
+            <span>3D GLB</span>
+          </button>
+        </div>
+
+        {/* Rover Visual Toggle */}
+        <div className="flex items-center bg-neutral-900 border border-neutral-800 rounded p-0.5 text-[10px]">
+          <button
+            onClick={() => setRoverVisual('leo_glb')}
+            className={clsx(
+              "px-2 py-0.5 rounded transition-all",
+              roverVisual === 'leo_glb'
+                ? "bg-cyan-600 text-white font-bold"
+                : "text-neutral-500 hover:text-neutral-300"
+            )}
+            title="Leo Rover CAD 3D model"
+          >
+            LEO 3D
+          </button>
+          <button
+            onClick={() => setRoverVisual('procedural')}
+            className={clsx(
+              "px-2 py-0.5 rounded transition-all",
+              roverVisual === 'procedural'
+                ? "bg-cyan-600 text-white font-bold"
+                : "text-neutral-500 hover:text-neutral-300"
+            )}
+            title="Procedural 6-wheeled articulated rover"
+          >
+            PROC
+          </button>
+        </div>
+
+        <div className="text-neutral-800">|</div>
+
+        <div className="flex items-center space-x-1 text-neutral-500 text-[11px]">
           <Cpu size={12} className="text-neutral-600" />
           <span>20Hz</span>
         </div>
-        <div className="text-neutral-700">|</div>
-        <span className="text-neutral-600">BACKEND2: C++ D*LITE</span>
       </div>
     </header>
   );

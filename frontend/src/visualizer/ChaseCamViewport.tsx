@@ -3,9 +3,11 @@ import { PerspectiveCamera, Environment, Stars } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import TerrainMesh from './TerrainMesh';
+import GlbTerrain from './GlbTerrain';
 import InstancedObstacles from './InstancedObstacles';
 import PathVisualizer from './PathVisualizer';
 import RoverModel from './RoverModel';
+import { useSimulationStore } from '../store/useSimulationStore';
 import type { Telemetry, DynamicObstacle, VictimData } from '../store/useSimulationStore';
 
 interface Props {
@@ -23,6 +25,7 @@ const HEIGHT_SCALE = 0.35;
 export default function ChaseCamViewport({
   telemetry, path3d, elevationData, temperatureData, obstacleData, victims, dynamicObstacles
 }: Props) {
+  const terrainVisual = useSimulationStore((s) => s.terrainVisual);
   const cameraRef = useRef<THREE.PerspectiveCamera>(null);
   const camTarget = useRef(new THREE.Vector3());
   const camPos = useRef(new THREE.Vector3(0, 5, 10));
@@ -84,20 +87,35 @@ export default function ChaseCamViewport({
       </Suspense>
 
       {/* Terrain & Physical Obstacles */}
-      {elevationData && temperatureData && obstacleData && (
+      {terrainVisual === 'glb_mesh' ? (
         <group>
-          <TerrainMesh
-            elevationData={elevationData}
-            temperatureData={temperatureData}
-            obstacleData={obstacleData}
-            heightScale={HEIGHT_SCALE}
-          />
-          <InstancedObstacles
-            obstacleData={obstacleData}
-            elevationData={elevationData}
-            heightScale={HEIGHT_SCALE}
-          />
+          <Suspense fallback={null}>
+            <GlbTerrain />
+          </Suspense>
+          {obstacleData && elevationData && (
+            <InstancedObstacles
+              obstacleData={obstacleData}
+              elevationData={elevationData}
+              heightScale={HEIGHT_SCALE}
+            />
+          )}
         </group>
+      ) : (
+        elevationData && temperatureData && obstacleData && (
+          <group>
+            <TerrainMesh
+              elevationData={elevationData}
+              temperatureData={temperatureData}
+              obstacleData={obstacleData}
+              heightScale={HEIGHT_SCALE}
+            />
+            <InstancedObstacles
+              obstacleData={obstacleData}
+              elevationData={elevationData}
+              heightScale={HEIGHT_SCALE}
+            />
+          </group>
+        )
       )}
 
       {/* Path */}

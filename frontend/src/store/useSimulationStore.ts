@@ -73,6 +73,8 @@ interface SimulationState {
   lastMutationAck: string | null;
   latestSosAlert: SosAlert | null;
   sosCount: number;
+  terrainVisual: 'digital_twin' | 'glb_mesh';
+  roverVisual: 'leo_glb' | 'procedural';
 
   connect: () => void;
   disconnect: () => void;
@@ -80,6 +82,8 @@ interface SimulationState {
   applyGodModeAt: (gridX: number, gridY: number) => void;
   sendGodModeCommand: (payload: any) => void;
   dismissSosAlert: () => void;
+  setTerrainVisual: (v: 'digital_twin' | 'glb_mesh') => void;
+  setRoverVisual: (v: 'leo_glb' | 'procedural') => void;
 }
 
 let _ws: WebSocket | null = null;
@@ -100,6 +104,8 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   lastMutationAck: null,
   latestSosAlert: null,
   sosCount: 0,
+  terrainVisual: 'digital_twin',
+  roverVisual: 'leo_glb',
 
   connect: () => {
     if (_ws) return;
@@ -240,4 +246,6 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   },
 
   dismissSosAlert: () => set({ latestSosAlert: null }),
+  setTerrainVisual: (v) => set({ terrainVisual: v }),
+  setRoverVisual: (v) => set({ roverVisual: v }),
 }));

@@ -1,6 +1,8 @@
-import { useRef } from 'react';
+import { useRef, Suspense } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import GlbRover from './GlbRover';
+import { useSimulationStore } from '../store/useSimulationStore';
 
 interface Props {
   position: [number, number, number];
@@ -98,8 +100,7 @@ function LiDAR({ position }: { position: [number, number, number] }) {
   );
 }
 
-// Articulated rover body with exposed circuit interior
-export default function RoverModel({ position, headingRad, slopeDeg }: Omit<Props, 'velocity'> & { velocity?: number }) {
+function ProceduralRover({ position, headingRad, slopeDeg }: Omit<Props, 'velocity'> & { velocity?: number }) {
   const groupRef = useRef<THREE.Group>(null);
   const tiltRef = useRef(0);
 
@@ -294,5 +295,19 @@ export default function RoverModel({ position, headingRad, slopeDeg }: Omit<Prop
       {/* Ambient glow under chassis (status indicator) */}
       <pointLight color="#0044ff" intensity={0.4} distance={3} position={[0, -0.1, 0]} />
     </group>
+  );
+}
+
+export default function RoverModel(props: Omit<Props, 'velocity'> & { velocity?: number }) {
+  const roverVisual = useSimulationStore((s) => s.roverVisual);
+
+  if (roverVisual === 'procedural') {
+    return <ProceduralRover {...props} />;
+  }
+
+  return (
+    <Suspense fallback={<ProceduralRover {...props} />}>
+      <GlbRover position={props.position} headingRad={props.headingRad} slopeDeg={props.slopeDeg} />
+    </Suspense>
   );
 }
