@@ -1,9 +1,14 @@
 import React from 'react';
-import { Activity, ShieldAlert, Cpu, Radio, WifiOff } from 'lucide-react';
+import { Activity, ShieldAlert, Cpu, Radio, WifiOff, FlagTriangleRight } from 'lucide-react';
 import { useMissionStore } from '../store/useMissionStore';
 
+// Rover is considered to have arrived once it's within this many grid units
+// of the goal -- the sim's own arrival tolerance isn't exposed over the wire,
+// so this just needs to be a bit looser than final-approach jitter.
+const GOAL_ARRIVAL_RADIUS = 2.5;
+
 export const HUD: React.FC = () => {
-  const { wsConnected, telemetry } = useMissionStore();
+  const { wsConnected, telemetry, initialState } = useMissionStore();
 
   if (!telemetry) {
     return (
@@ -15,6 +20,10 @@ export const HUD: React.FC = () => {
   }
 
   const { pose, environment, power, benchmark, sos_count } = telemetry;
+
+  const missionComplete =
+    !!initialState &&
+    Math.hypot(pose.x - initialState.goal[0], pose.y - initialState.goal[1]) < GOAL_ARRIVAL_RADIUS;
 
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-4 z-10 font-mono text-white select-none">
@@ -29,10 +38,17 @@ export const HUD: React.FC = () => {
       {/* Top Header Rail */}
       <div className="flex items-center justify-between border-b border-cyan-500/20 pb-2 bg-gradient-to-b from-black/80 to-transparent">
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 px-2.5 py-1 bg-cyan-950/60 border border-cyan-500/40 rounded text-cyan-300 text-xs tracking-wider">
-            <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
-            AEGIS-NAV C2 // MISSION RUNNING
-          </div>
+          {missionComplete ? (
+            <div className="flex items-center gap-2 px-2.5 py-1 bg-emerald-950/60 border border-emerald-500/40 rounded text-emerald-300 text-xs tracking-wider">
+              <FlagTriangleRight className="w-3.5 h-3.5" />
+              AEGIS-NAV C2 // TARGET REACHED
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 px-2.5 py-1 bg-cyan-950/60 border border-cyan-500/40 rounded text-cyan-300 text-xs tracking-wider">
+              <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
+              AEGIS-NAV C2 // MISSION RUNNING
+            </div>
+          )}
           <span className="text-neutral-400 text-xs">SYS_CADENCE: 20Hz</span>
         </div>
 
