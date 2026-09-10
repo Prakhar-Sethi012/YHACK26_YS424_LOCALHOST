@@ -14,6 +14,9 @@ struct Cell {
     float thermal_hazard = 0.0f;     // [0, 100]
     float structural_risk = 0.0f;    // [0, 1]
     float clearance = 0.0f;          // grid-distance to nearest obstacle, recomputed lazily
+    float elevation = 0.0f;          // meters, set via Grid2D::set_elevation_grid
+    float slope_penalty = 0.0f;      // ||grad h||^2, cached by set_elevation_grid's recompute_slope pass
+    bool rollover_impassable = false; // true once the local slope angle exceeds MAX_SLOPE_DEGREES
 };
 
 struct CostWeights {
@@ -21,7 +24,13 @@ struct CostWeights {
     double w_temp = 0.2;
     double w_risk = 6.0;
     double w_obs = 4.0;
+    double w_slope = 3.0;
 };
+
+// Rollover-impassable threshold. Fixed rather than a tunable weight because
+// it represents a hard physical limit (the vehicle tips over), not a soft
+// cost preference -- matches Backend 1's own default of the same value.
+constexpr double MAX_SLOPE_DEGREES = 35.0;
 
 class Grid2D {
 public:
@@ -38,9 +47,19 @@ public:
     void set_obstacle(int x, int y, bool blocked);
     void set_hazard(int x, int y, float thermal_hazard, float structural_risk);
 
+    // Uploads a full heightmap (row-major, [y][x]) and immediately recomputes
+    // slope_penalty/rollover_impassable for every cell -- unlike obstacles,
+    // elevation is set once at init and never incrementally mutated in this
+    // phase, so there's no separate "recompute" step to forget to call.
+    void set_elevation_grid(const std::vector<std::vector<float>>& heightmap);
+
     // Multi-source Dijkstra distance transform from all obstacle cells.
     // Must be called after obstacle mutations for clearance-dependent costs to be current.
     void recompute_clearance();
+
+    // Central-difference gradient magnitude per cell -> slope_penalty (||grad h||^2)
+    // and rollover_impassable (angle > MAX_SLOPE_DEGREES). Called by set_elevation_grid.
+    void recompute_slope();
 
     double obstacle_penalty(int x, int y) const;
 

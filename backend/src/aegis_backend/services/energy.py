@@ -96,6 +96,7 @@ def reweight_for_low_reserve(weights: aegis_core.CostWeights) -> aegis_core.Cost
     reweighted.w_temp = weights.w_temp * LOW_RESERVE_THERMAL_MULTIPLIER
     reweighted.w_risk = weights.w_risk
     reweighted.w_obs = weights.w_obs
+    reweighted.w_slope = weights.w_slope
     return reweighted
 
 

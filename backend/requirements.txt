@@ -4,3 +4,13 @@ pydantic>=2.8,<3
 sqlalchemy[asyncio]>=2.0,<2.1
 asyncpg>=0.29,<0.30
 pybind11>=2.12
+
+# backend/simulation + server.py (the stateless WebSocket engine merged from
+# the `backend` branch) -- dropped silently when that branch's own
+# requirements.txt lost a merge conflict against this file.
+numpy>=2.1.0
+scipy>=1.14.0
+
+# backend/simulation/rover_sim.py -- async HTTP client calling Backend 2's
+# REST API for planning (Phase 5: rover_sim no longer plans locally).
+httpx>=0.27

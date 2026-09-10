@@ -41,8 +41,16 @@ public:
     explicit DStarLitePlanner(CostWeights weights = CostWeights());
 
     ReplanResult init(std::shared_ptr<Grid2D> grid, std::pair<int, int> start, std::pair<int, int> goal);
+
+    // current_position moves the planner's internal start to wherever the
+    // agent actually is now, before repairing -- Koenig & Likhachev's Main()
+    // loop does exactly this every time the agent advances (bumping k_m by
+    // h(s_last, s_start) so stale heap keys computed under the old start
+    // remain valid lower bounds against freshly-computed ones). Without this,
+    // a repaired path stays anchored at wherever init() was last called from.
     ReplanResult update_obstacles(const std::vector<std::pair<int, int>>& changed_cells,
-                                   const std::vector<bool>& blocked);
+                                   const std::vector<bool>& blocked,
+                                   std::pair<int, int> current_position);
 
     const CostWeights& weights() const { return weights_; }
     void set_weights(const CostWeights& weights) { weights_ = weights; }

@@ -1,10 +1,15 @@
 #include "grid2d.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <queue>
 #include <utility>
 
 namespace aegis {
+
+namespace {
+constexpr double PI = 3.14159265358979323846;
+}
 
 Grid2D::Grid2D(int width, int height) : width_(width), height_(height) {
     cells.assign(static_cast<size_t>(width_) * static_cast<size_t>(height_), Cell{});
@@ -32,6 +37,39 @@ void Grid2D::set_hazard(int x, int y, float thermal_hazard, float structural_ris
     Cell& c = at(x, y);
     c.thermal_hazard = thermal_hazard;
     c.structural_risk = structural_risk;
+}
+
+void Grid2D::set_elevation_grid(const std::vector<std::vector<float>>& heightmap) {
+    for (int y = 0; y < height_ && y < static_cast<int>(heightmap.size()); ++y) {
+        const auto& row = heightmap[y];
+        for (int x = 0; x < width_ && x < static_cast<int>(row.size()); ++x) {
+            at(x, y).elevation = row[x];
+        }
+    }
+    recompute_slope();
+}
+
+void Grid2D::recompute_slope() {
+    const double max_slope_rad = MAX_SLOPE_DEGREES * PI / 180.0;
+
+    for (int y = 0; y < height_; ++y) {
+        for (int x = 0; x < width_; ++x) {
+            int x0 = std::max(x - 1, 0);
+            int x1 = std::min(x + 1, width_ - 1);
+            int y0 = std::max(y - 1, 0);
+            int y1 = std::min(y + 1, height_ - 1);
+
+            float dx_span = static_cast<float>(x1 - x0);
+            float dy_span = static_cast<float>(y1 - y0);
+            float grad_x = dx_span > 0.0f ? (at(x1, y).elevation - at(x0, y).elevation) / dx_span : 0.0f;
+            float grad_y = dy_span > 0.0f ? (at(x, y1).elevation - at(x, y0).elevation) / dy_span : 0.0f;
+            float grad_mag = std::sqrt(grad_x * grad_x + grad_y * grad_y);
+
+            Cell& c = at(x, y);
+            c.slope_penalty = grad_mag * grad_mag;
+            c.rollover_impassable = std::atan(static_cast<double>(grad_mag)) > max_slope_rad;
+        }
+    }
 }
 
 void Grid2D::recompute_clearance() {
@@ -86,10 +124,11 @@ double Grid2D::obstacle_penalty(int x, int y) const {
 
 double Grid2D::cell_cost(int x, int y, const CostWeights& weights) const {
     const Cell& c = at(x, y);
-    if (!c.traversable) return INF;
+    if (!c.traversable || c.rollover_impassable) return INF;
     return weights.w_d +
            weights.w_temp * c.thermal_hazard +
            weights.w_risk * c.structural_risk +
+           weights.w_slope * c.slope_penalty +
            weights.w_obs * obstacle_penalty(x, y);
 }
 
@@ -104,7 +143,7 @@ bool Grid2D::diagonal_move_allowed(int fromX, int fromY, int toX, int toY) const
 }
 
 double Grid2D::traversal_cost(int fromX, int fromY, int toX, int toY, const CostWeights& weights) const {
-    if (!in_bounds(toX, toY) || !at(toX, toY).traversable) return INF;
+    if (!in_bounds(toX, toY) || !at(toX, toY).traversable || at(toX, toY).rollover_impassable) return INF;
     if (!diagonal_move_allowed(fromX, fromY, toX, toY)) return INF;
 
     bool diagonal = (fromX != toX) && (fromY != toY);
@@ -113,6 +152,7 @@ double Grid2D::traversal_cost(int fromX, int fromY, int toX, int toY, const Cost
     return base +
            weights.w_temp * c.thermal_hazard +
            weights.w_risk * c.structural_risk +
+           weights.w_slope * c.slope_penalty +
            weights.w_obs * obstacle_penalty(toX, toY);
 }
 

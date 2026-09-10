@@ -207,16 +207,20 @@ ReplanResult DStarLitePlanner::init(std::shared_ptr<Grid2D> grid, std::pair<int,
 }
 
 ReplanResult DStarLitePlanner::update_obstacles(const std::vector<std::pair<int, int>>& changed_cells,
-                                                 const std::vector<bool>& blocked) {
+                                                 const std::vector<bool>& blocked,
+                                                 std::pair<int, int> current_position) {
     auto t0 = std::chrono::steady_clock::now();
 
     if (!initialized_ || !grid_) {
         return ReplanResult{};
     }
 
-    // k_m accumulates heuristic drift since the last replan. The service exposes
-    // single-shot repairs rather than a continuously-moving agent loop, so the
-    // "start" a caller repairs from may itself have advanced between calls.
+    if (grid_->in_bounds(current_position.first, current_position.second)) {
+        start_idx_ = grid_->index(current_position.first, current_position.second);
+    }
+
+    // k_m accumulates heuristic drift as the agent's start advances between
+    // replans -- see this method's declaration in the header for why.
     k_m_ += heuristic_idx(last_start_idx_, start_idx_);
     last_start_idx_ = start_idx_;
 

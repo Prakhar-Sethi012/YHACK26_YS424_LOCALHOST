@@ -31,6 +31,7 @@ def plan_baseline(req: PlanBaselineRequest, state: EngineState = Depends(get_eng
         weights.w_temp = req.weights.w_temp
         weights.w_risk = req.weights.w_risk
         weights.w_obs = req.weights.w_obs
+        weights.w_slope = req.weights.w_slope
         state.set_weights(weights)
 
     result = state.astar.plan(grid, req.start, req.goal)

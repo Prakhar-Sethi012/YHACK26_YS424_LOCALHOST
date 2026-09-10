@@ -30,6 +30,13 @@ def init_grid(req: GridInitRequest, state: EngineState = Depends(get_engine_stat
         grid.set_obstacle(x, y, True)
     grid.recompute_clearance()
 
+    if req.elevation is not None:
+        if len(req.elevation) != req.height or any(len(row) != req.width for row in req.elevation):
+            raise HTTPException(
+                400, f"elevation must be a {req.height}x{req.width} row-major [y][x] grid"
+            )
+        grid.set_elevation_grid(req.elevation)  # also recomputes slope internally
+
     state.grid = grid
     state.resolution = req.resolution
     state.active_path = []
@@ -124,8 +131,12 @@ def mutate_grid(req: GridMutateRequest, state: EngineState = Depends(get_engine_
     if len(req.changed_cells) != len(req.blocked):
         raise HTTPException(400, "changed_cells and blocked must be the same length")
 
+    current_position = tuple(req.current_position) if req.current_position is not None else state.start
+    if current_position is None or not state.grid.in_bounds(*current_position):
+        raise HTTPException(400, "current_position must be within grid bounds")
+
     old_path = state.active_path
-    result = state.dstar.update_obstacles(req.changed_cells, req.blocked)
+    result = state.dstar.update_obstacles(req.changed_cells, req.blocked, current_position)
 
     if result.found:
         state.active_path = result.path

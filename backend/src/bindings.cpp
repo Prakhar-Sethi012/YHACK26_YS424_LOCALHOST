@@ -18,14 +18,18 @@ PYBIND11_MODULE(aegis_core, m) {
         .def_readwrite("w_d", &CostWeights::w_d)
         .def_readwrite("w_temp", &CostWeights::w_temp)
         .def_readwrite("w_risk", &CostWeights::w_risk)
-        .def_readwrite("w_obs", &CostWeights::w_obs);
+        .def_readwrite("w_obs", &CostWeights::w_obs)
+        .def_readwrite("w_slope", &CostWeights::w_slope);
 
     py::class_<Cell>(m, "Cell")
         .def(py::init<>())
         .def_readwrite("traversable", &Cell::traversable)
         .def_readwrite("thermal_hazard", &Cell::thermal_hazard)
         .def_readwrite("structural_risk", &Cell::structural_risk)
-        .def_readwrite("clearance", &Cell::clearance);
+        .def_readwrite("clearance", &Cell::clearance)
+        .def_readwrite("elevation", &Cell::elevation)
+        .def_readwrite("slope_penalty", &Cell::slope_penalty)
+        .def_readwrite("rollover_impassable", &Cell::rollover_impassable);
 
     py::class_<Grid2D, std::shared_ptr<Grid2D>>(m, "Grid2D")
         .def(py::init<int, int>(), py::arg("width"), py::arg("height"))
@@ -36,7 +40,9 @@ PYBIND11_MODULE(aegis_core, m) {
         .def("set_obstacle", &Grid2D::set_obstacle, py::arg("x"), py::arg("y"), py::arg("blocked"))
         .def("set_hazard", &Grid2D::set_hazard, py::arg("x"), py::arg("y"), py::arg("thermal_hazard"),
              py::arg("structural_risk"))
+        .def("set_elevation_grid", &Grid2D::set_elevation_grid, py::arg("heightmap"))
         .def("recompute_clearance", &Grid2D::recompute_clearance)
+        .def("recompute_slope", &Grid2D::recompute_slope)
         .def("cell_cost", &Grid2D::cell_cost, py::arg("x"), py::arg("y"), py::arg("weights"))
         .def("costmap", [](const Grid2D& g, const CostWeights& weights) {
             std::vector<std::vector<double>> rows(g.height(), std::vector<double>(g.width()));
@@ -71,6 +77,6 @@ PYBIND11_MODULE(aegis_core, m) {
         .def(py::init<CostWeights>(), py::arg("weights") = CostWeights())
         .def("init", &DStarLitePlanner::init, py::arg("grid"), py::arg("start"), py::arg("goal"))
         .def("update_obstacles", &DStarLitePlanner::update_obstacles, py::arg("changed_cells"),
-             py::arg("blocked"))
+             py::arg("blocked"), py::arg("current_position"))
         .def_property("weights", &DStarLitePlanner::weights, &DStarLitePlanner::set_weights);
 }

@@ -10,6 +10,11 @@ class GridInitRequest(BaseModel):
     height: int = Field(gt=0, le=1000)
     resolution: float = Field(default=1.0, gt=0)
     obstacles: list[Coord] = Field(default_factory=list)
+    # Row-major [y][x] heightmap, meters. Optional: Backend 1 (the source of
+    # elevation data) pushes this so Backend 2's A*/D* Lite penalize steep
+    # edges and refuse rollover-impassable slopes -- without it the grid is
+    # flat and every route looks equally climbable.
+    elevation: list[list[float]] | None = None
 
 
 class GridInitResponse(BaseModel):
@@ -48,6 +53,7 @@ class CostWeightsModel(BaseModel):
     w_temp: float = 0.2
     w_risk: float = 6.0
     w_obs: float = 4.0
+    w_slope: float = 3.0
 
 
 class PlanBaselineRequest(BaseModel):
@@ -67,6 +73,11 @@ class PlanResponse(BaseModel):
 class GridMutateRequest(BaseModel):
     changed_cells: list[Coord]
     blocked: list[bool]
+    # Rover's current grid cell. Moves D* Lite's internal start here before
+    # repairing, so the returned path picks up from where the agent actually
+    # is -- omit only for backward compatibility, in which case the repaired
+    # path stays anchored at whatever /api/plan/baseline last set as start.
+    current_position: Coord | None = None
 
 
 class MutateResponse(BaseModel):

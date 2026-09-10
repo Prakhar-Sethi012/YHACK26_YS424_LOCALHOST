@@ -9,6 +9,25 @@ services:
       db:
         condition: service_healthy
 
+  # Backend 1: the stateless, per-connection 20Hz WebSocket simulation engine
+  # (backend/server.py + backend/simulation/*). No shared state/DB with `api`
+  # -- gets its own port rather than trying to run both uvicorn processes
+  # from one Dockerfile CMD -- but as of Phase 5 it IS a client of `api`:
+  # it calls Backend 2's REST endpoints to plan, so it needs `api` reachable
+  # by its in-network service name (not the host-mapped 8001) and running
+  # first. `depends_on` here only waits for the container to start, not for
+  # its FastAPI app to finish startup -- rover_sim.py's first call retries
+  # with backoff to ride out that gap.
+  sim:
+    build: .
+    command: ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8002:8000"
+    environment:
+      BACKEND2_BASE_URL: http://api:8000
+    depends_on:
+      - api
+
   db:
     image: postgres:16-alpine
     environment:
