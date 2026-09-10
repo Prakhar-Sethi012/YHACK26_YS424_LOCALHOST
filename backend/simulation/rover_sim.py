@@ -15,24 +15,28 @@ elevation heightmap at each waypoint (bilinear interpolation) and runs a
 Catmull-Rom smoothing pass to produce the Path3D this session actually
 streams to the client.
 
-Known limitations of this split, inherent to Backend 2's current REST
-contract (not fixable without changing Backend 2, which is out of scope
-here):
-- POST /api/grid/mutate has no field for the rover's current position. D*
-  Lite's internal `start` is fixed at whatever POST /api/plan/baseline last
-  set it to (this session's initial (10, 10)), so a path returned after a
-  mutation is anchored back at that original start, not wherever the rover
-  has actually moved to by then.
+Fixed in a later pass (both touching Backend 2's C++ core directly, since
+by that point both were explicitly in scope):
+- POST /api/grid/mutate now accepts `current_position`, which moves D* Lite's
+  internal start there before repairing -- a repaired path picks up from
+  wherever the rover actually is, not wherever init() was last called from.
+  _replan_via_mutate sends the rover's live grid cell on every call.
+- POST /api/grid/init now accepts an `elevation` heightmap. Backend 2's
+  Grid2D computes a real slope penalty and a hard rollover-impassable
+  threshold (35 degrees) from it via CostWeights.w_slope, so the C++
+  planners now know the world isn't flat -- _sync_grid_to_backend2 pushes
+  this module's own heightmap there once at startup, and
+  "emergency_low_battery" biases the real w_slope remotely instead of a
+  thermal-weight proxy for it.
+
+One limitation remains, inherent to Backend 2's current REST contract and
+accepted rather than fixed (by explicit choice -- this endpoint's job is
+obstacle changes, not a general "recompute everything" call):
 - POST /api/grid/hazards updates Backend 2's cost field but never touches
   its D* Lite planner state, so a hazard-only change (add_heat_zone) has no
   incremental-repair path there at all -- this session falls back to a
   fresh /api/plan/baseline call for those, which does reset Backend 2's D*
   Lite state (same cost any full replan would carry).
-- Backend 2's Grid2D has no slope/elevation concept in its cost weights
-  (CostWeights is {w_d, w_temp, w_risk, w_obs} -- no w_slope), so
-  "emergency_low_battery"'s local w_slope bias can't be forwarded to
-  Backend 2's remote planning; it's approximated with a thermal-weight bias
-  instead and this gap is left visible rather than pretending it's covered.
 """
 
 import asyncio
@@ -158,6 +162,7 @@ class RoverSimulationSession:
                         "height": self.height,
                         "resolution": float(self.cost_field.resolution),
                         "obstacles": obstacles,
+                        "elevation": self.cost_field.elevation.tolist(),
                     },
                 )
                 resp.raise_for_status()
@@ -233,18 +238,20 @@ class RoverSimulationSession:
 
     async def _replan_via_mutate(self, modified_cells: List[Tuple[int, int]]) -> Dict[str, Any]:
         """Incremental repair via POST /api/grid/mutate for an obstacle
-        blocked/unblocked change. See this module's docstring for the caveat
-        on the path's start point after this call."""
+        blocked/unblocked change. Sends the rover's current grid cell as
+        current_position so the repaired path picks up from there."""
         if not modified_cells:
             return {"status": "no_op", "reason": "no changed cells to report to Backend 2"}
 
         t0 = time.perf_counter()
         changed_cells = [[x, y] for x, y in modified_cells]
         blocked = [bool(self.cost_field.obstacles[y, x]) for x, y in modified_cells]
+        rover_grid = [int(np.clip(self.x, 0, self.width - 1)), int(np.clip(self.y, 0, self.height - 1))]
 
         try:
             resp = await self._http.post(
-                "/api/grid/mutate", json={"changed_cells": changed_cells, "blocked": blocked}
+                "/api/grid/mutate",
+                json={"changed_cells": changed_cells, "blocked": blocked, "current_position": rover_grid},
             )
             resp.raise_for_status()
             data = resp.json()
@@ -439,10 +446,10 @@ class RoverSimulationSession:
         # tick -- a network round-trip mid-physics-step would stall the 20Hz
         # stream for every other client-visible field, not just the path.
         if power_telemetry["is_critical_reserve"] and self.cost_field.w_slope < 8.0:
-            self.cost_field.w_slope = 10.0  # Extreme aversion to climbs (local only, see module docstring)
+            self.cost_field.w_slope = 10.0  # Extreme aversion to climbs, mirrored to Backend 2 below
             self.cost_field.recompute_all()
             if self._replan_task is None or self._replan_task.done():
-                self._replan_task = asyncio.create_task(self._replan_via_baseline(weights={"w_temp": 0.6}))
+                self._replan_task = asyncio.create_task(self._replan_via_baseline(weights={"w_slope": 10.0}))
 
         # 6. Victim Perception Frustum Sweep (60 deg cone, 12m radius)
         new_sos = self._sweep_perception_frustum()
@@ -516,7 +523,7 @@ class RoverSimulationSession:
         Processes operator / judge map mutations in real time:
         - "drop_obstacle": Drops rubble / collapsed wall, repaired incrementally via Backend 2's D* Lite.
         - "add_heat_zone": Spawns fire / chemical thermal burst, replanned via a fresh Backend 2 baseline.
-        - "emergency_low_battery": Forces a conservative reroute (thermal-biased proxy for slope aversion).
+        - "emergency_low_battery": Forces a conservative reroute, biasing Backend 2's real slope weight.
         """
         action_type = payload.get("type")
 
@@ -552,6 +559,6 @@ class RoverSimulationSession:
             self.power_model.battery_wh = 40.0  # Force < 10%
             self.cost_field.w_slope = 12.0
             self.cost_field.recompute_all()
-            return await self._replan_via_baseline(weights={"w_temp": 0.6})
+            return await self._replan_via_baseline(weights={"w_slope": 12.0})
 
         return {"status": "ignored", "reason": f"unknown mutation type: {action_type!r}"}
