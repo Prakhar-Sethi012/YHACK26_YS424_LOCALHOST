@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, ShieldAlert, Cpu, Radio } from 'lucide-react';
+import { Activity, ShieldAlert, Cpu, Radio, WifiOff } from 'lucide-react';
 import { useMissionStore } from '../store/useMissionStore';
 
 export const HUD: React.FC = () => {
@@ -18,6 +18,14 @@ export const HUD: React.FC = () => {
 
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-4 z-10 font-mono text-white select-none">
+      {/* Stream-loss banner -- telemetry below is the last known frame, frozen */}
+      {!wsConnected && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex items-center gap-2.5 px-4 py-2.5 bg-rose-950/90 border border-rose-500/60 text-rose-300 font-mono text-sm rounded shadow-[0_0_20px_rgba(244,63,94,0.3)]">
+          <WifiOff className="w-4 h-4 animate-pulse" />
+          TELEMETRY LINK LOST // REATTEMPTING CONNECTION...
+        </div>
+      )}
+
       {/* Top Header Rail */}
       <div className="flex items-center justify-between border-b border-cyan-500/20 pb-2 bg-gradient-to-b from-black/80 to-transparent">
         <div className="flex items-center gap-3">
