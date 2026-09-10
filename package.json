@@ -1,0 +1,26 @@
+{
+  "name": "aegis-nav",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AEGIS-NAV — Autonomous Rescue Command & Control System",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit"
+  },
+  "dependencies": {
+    "three": "^0.169.0",
+    "zustand": "^4.5.5",
+    "lucide": "^0.451.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.169.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8"
+  }
+}
