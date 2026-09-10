@@ -279,6 +279,11 @@ export const ViewportCanvas: React.FC = () => {
         if (pathLineRef.current) {
           sceneRef.current.remove(pathLineRef.current);
           pathLineRef.current.geometry.dispose();
+          // This line (geometry + a fresh LineBasicMaterial) is rebuilt on
+          // every telemetry tick, i.e. up to 20x/sec -- the material was
+          // never disposed here, only the geometry, so a full mission leaked
+          // one abandoned material per frame indefinitely.
+          (pathLineRef.current.material as THREE.Material).dispose();
         }
 
         const points = path.map((p) => new THREE.Vector3(p[0] - 50, p[2] + 0.25, p[1] - 50));
