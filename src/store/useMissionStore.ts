@@ -24,6 +24,7 @@ interface MissionStore {
   sendSetStart: (x: number, y: number) => void;
   sendSetGoal: (x: number, y: number) => void;
   sendSetPaused: (paused: boolean) => void;
+  sendSetTimeWarp: (factor: number) => void;
 }
 
 let socketRef: WebSocket | null = null;
@@ -105,6 +106,12 @@ export const useMissionStore = create<MissionStore>((set) => ({
   sendSetPaused: (paused) => {
     if (socketRef && socketRef.readyState === WebSocket.OPEN) {
       socketRef.send(JSON.stringify({ type: 'set_paused', paused }));
+    }
+  },
+
+  sendSetTimeWarp: (factor) => {
+    if (socketRef && socketRef.readyState === WebSocket.OPEN) {
+      socketRef.send(JSON.stringify({ type: 'set_time_warp', factor }));
     }
   },
 }));

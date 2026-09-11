@@ -75,6 +75,7 @@ export interface TelemetryData {
   waypoint_index: number;
   goal: [number, number]; // live -- set_goal can retarget this mid-mission
   paused: boolean;
+  time_warp: number; // multiplies simulated dt per tick; wall-clock tick rate stays 20Hz
   dynamic_obstacles: DynamicObstacle[];
   benchmark: {
     astar: BenchmarkMetrics;
