@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { Check, X } from 'lucide-react';
+import { Check, X, Radio, ZoomIn, ZoomOut, Target, Ruler, ThermometerSun, Battery, LocateFixed } from 'lucide-react';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useMissionStore } from '../store/useMissionStore';
 
@@ -187,21 +188,23 @@ export const ViewportCanvas: React.FC = () => {
 
     // Rover Marker Mesh
     const roverGroup = new THREE.Group();
-    const chassis = new THREE.Mesh(
-      new THREE.BoxGeometry(2.0, 0.8, 3.0),
-      new THREE.MeshStandardMaterial({ color: 0x00f0ff, metalness: 0.8, roughness: 0.2 })
-    );
-    chassis.position.y = 0.6;
-    chassis.castShadow = true;
-    roverGroup.add(chassis);
-
-    // Rover Sensor Mast / LiDAR Puck
-    const puck = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.3, 0.3, 0.5, 16),
-      new THREE.MeshBasicMaterial({ color: 0xff0055 })
-    );
-    puck.position.y = 1.3;
-    roverGroup.add(puck);
+    
+    // Restore GLTF Loading
+    const loader = new GLTFLoader();
+    loader.load('/models/leo_rover.glb', (gltf: any) => {
+      const model = gltf.scene;
+      model.scale.set(3.0, 3.0, 3.0); 
+      model.position.y = -5.2; 
+      model.rotation.y = Math.PI; 
+      
+      model.traverse((child: any) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
+      roverGroup.add(model);
+    });
 
     // Headlights
     const spotLight = new THREE.SpotLight(0xffffff, 4.0, 35, Math.PI / 5, 0.3);
@@ -331,24 +334,35 @@ export const ViewportCanvas: React.FC = () => {
       const zVal = elevation[row]?.[col] ?? 0;
       pos.setY(i, zVal);
 
-      // Vertex color blending: Heat Zones (Red) + Impassable (Dark Grey) + Traversal (Slate Blue)
+      // Procedural vivid terrain colors based on elevation
+      const noise = (Math.random() - 0.5) * 0.1;
+      let r, g, b;
+      if (zVal < 1.0) {
+        // Lush green valleys
+        r = 0.2 + noise; g = 0.8 + noise; b = 0.3 + noise;
+      } else if (zVal < 3.0) {
+        // Rich brown slopes
+        r = 0.6 + noise; g = 0.4 + noise; b = 0.2 + noise;
+      } else {
+        // Snowy white peaks
+        r = 0.9 + noise; g = 0.9 + noise; b = 0.9 + noise;
+      }
+
       const temp = temperature[row]?.[col] ?? 20;
       const isBlocked = obstacles[row]?.[col] ?? false;
 
       if (isBlocked) {
-        colors[i * 3] = 0.15;
-        colors[i * 3 + 1] = 0.15;
-        colors[i * 3 + 2] = 0.18;
-      } else if (temp > 45) {
-        const heatFactor = Math.min(1.0, (temp - 45) / 40);
-        colors[i * 3] = 0.9 * heatFactor + 0.1;
-        colors[i * 3 + 1] = 0.2 * (1 - heatFactor);
-        colors[i * 3 + 2] = 0.1;
+        colors[i * 3] = r * 0.3;
+        colors[i * 3 + 1] = g * 0.3;
+        colors[i * 3 + 2] = b * 0.3;
+      } else if (temp > 40) {
+        colors[i * 3] = Math.min(1.0, r + 0.5);
+        colors[i * 3 + 1] = g * 0.2;
+        colors[i * 3 + 2] = b * 0.2;
       } else {
-        const normZ = (zVal + 10) / 24;
-        colors[i * 3] = 0.12 + 0.1 * normZ;
-        colors[i * 3 + 1] = 0.18 + 0.2 * normZ;
-        colors[i * 3 + 2] = 0.25 + 0.3 * normZ;
+        colors[i * 3] = r;
+        colors[i * 3 + 1] = g;
+        colors[i * 3 + 2] = b;
       }
     }
 
@@ -357,14 +371,21 @@ export const ViewportCanvas: React.FC = () => {
 
     const terrainMat = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: 0.85,
+      roughness: 0.9,
       metalness: 0.1,
-      wireframe: false,
+      flatShading: true,
     });
 
     const terrainMesh = new THREE.Mesh(geometry, terrainMat);
     terrainMesh.receiveShadow = true;
     scene.add(terrainMesh);
+
+    // Subtle wireframe overlay for a graphic look
+    const wireframe = new THREE.LineSegments(
+      new THREE.WireframeGeometry(geometry),
+      new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.1 })
+    );
+    terrainMesh.add(wireframe);
     terrainMeshRef.current = terrainMesh;
 
     // Show the server's own start/goal immediately, before any manual
@@ -373,8 +394,8 @@ export const ViewportCanvas: React.FC = () => {
     const sampleElevation = (gx: number, gy: number) => elevation[gy]?.[gx] ?? 0;
     const [startX, startY] = initialState.start;
     const [goalX, goalY] = initialState.goal;
-    placeSingleMarker(scene, startMarkerRef, createStartMarkerMesh(), startX - 50, sampleElevation(startX, startY), startY - 50);
-    placeSingleMarker(scene, goalMarkerRef, createGoalMarkerMesh(), goalX - 50, sampleElevation(goalX, goalY), goalY - 50);
+    // placeSingleMarker(scene, startMarkerRef, createStartMarkerMesh(), startX - 50, sampleElevation(startX, startY), startY - 50);
+    // placeSingleMarker(scene, goalMarkerRef, createGoalMarkerMesh(), goalX - 50, sampleElevation(goalX, goalY), goalY - 50);
   }, [initialState]);
 
   // Keep the amber preview marker in sync with pendingStart -- shows/moves it
@@ -435,10 +456,11 @@ export const ViewportCanvas: React.FC = () => {
       roverMeshRef.current.rotation.y = -pose.heading_rad - Math.PI / 2;
 
       // Update TPP Chase Camera Position
-      const chaseOffset = new THREE.Vector3(0, 3.5, -6.5);
+      // Pulled further back and higher up to fit the 3x scaled GLB rover
+      const chaseOffset = new THREE.Vector3(0, 5.5, -12.0);
       chaseOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), roverMeshRef.current.rotation.y);
       chaseCameraRef.current.position.set(worldX + chaseOffset.x, worldY + chaseOffset.y, worldZ + chaseOffset.z);
-      chaseCameraRef.current.lookAt(worldX, worldY + 1.2, worldZ);
+      chaseCameraRef.current.lookAt(worldX, worldY + 2.0, worldZ);
 
       // Render 3D Smoothed Trajectory Line
       if (sceneRef.current && path && path.length > 0) {
